@@ -95,6 +95,17 @@ pub fn iso_offset(days_ago: i64) -> String {
     iso_from_days(epoch_days() - days_ago)
 }
 
+/// Milliseconds elapsed since the Unix epoch.
+///
+/// `today_iso()` is day-granular, which cannot order two edits made on the same
+/// day — the resolution sync needs to decide which of two copies is newer.
+pub fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 /// A reasonably unique id derived from the current time in nanoseconds.
 fn generate_id() -> String {
     let nanos = SystemTime::now()
@@ -135,7 +146,7 @@ fn create_note(folder: String, state: tauri::State<'_, AppState>) -> Result<Note
         deleted_at: None,
     };
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    db::insert_note(&conn, &note).map_err(|e| e.to_string())?;
+    db::insert_note(&conn, &note, now_ms()).map_err(|e| e.to_string())?;
     Ok(note)
 }
 
@@ -147,7 +158,8 @@ fn update_note(
     state: tauri::State<'_, AppState>,
 ) -> Result<NoteSummary, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    db::update_note(&conn, &id, &title, &content, &today_iso()).map_err(|e| e.to_string())?;
+    db::update_note(&conn, &id, &title, &content, &today_iso(), now_ms())
+        .map_err(|e| e.to_string())?;
     db::get_summary(&conn, &id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Note {id} not found"))
@@ -157,7 +169,7 @@ fn update_note(
 #[tauri::command]
 fn delete_note(id: String, state: tauri::State<'_, AppState>) -> Result<NoteSummary, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    db::trash_note(&conn, &id, &today_iso()).map_err(|e| e.to_string())?;
+    db::trash_note(&conn, &id, &today_iso(), now_ms()).map_err(|e| e.to_string())?;
     db::get_summary(&conn, &id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Note {id} not found"))
@@ -172,7 +184,7 @@ fn list_trash(state: tauri::State<'_, AppState>) -> Result<Vec<NoteSummary>, Str
 #[tauri::command]
 fn restore_note(id: String, state: tauri::State<'_, AppState>) -> Result<NoteSummary, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    db::restore_note(&conn, &id).map_err(|e| e.to_string())?;
+    db::restore_note(&conn, &id, now_ms()).map_err(|e| e.to_string())?;
     db::get_summary(&conn, &id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Note {id} not found"))
@@ -182,20 +194,20 @@ fn restore_note(id: String, state: tauri::State<'_, AppState>) -> Result<NoteSum
 #[tauri::command]
 fn purge_note(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    db::purge_note(&conn, &id).map_err(|e| e.to_string())
+    db::purge_note(&conn, &id, now_ms()).map_err(|e| e.to_string())
 }
 
 /// Permanently delete everything in the trash.
 #[tauri::command]
 fn empty_trash(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    db::empty_trash(&conn).map_err(|e| e.to_string())
+    db::empty_trash(&conn, now_ms()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn toggle_favorite(id: String, state: tauri::State<'_, AppState>) -> Result<bool, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    db::toggle_favorite(&conn, &id).map_err(|e| e.to_string())
+    db::toggle_favorite(&conn, &id, now_ms()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -221,7 +233,7 @@ fn create_folder(
     if db::folder_exists(&conn, &name).map_err(|e| e.to_string())? {
         return Err(format!("The tag \"{name}\" already exists"));
     }
-    db::insert_folder(&conn, &name, &color).map_err(|e| e.to_string())?;
+    db::insert_folder(&conn, &name, &color, now_ms()).map_err(|e| e.to_string())?;
     Ok(Folder { name, color })
 }
 
@@ -243,7 +255,7 @@ fn delete_folder(
     let fallback = db::first_folder_except(&conn, &name)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "There is no other tag to move the notes to".to_string())?;
-    db::delete_folder(&conn, &name, &fallback).map_err(|e| e.to_string())?;
+    db::delete_folder(&conn, &name, &fallback, now_ms()).map_err(|e| e.to_string())?;
     Ok(DeleteFolderResult { fallback })
 }
 
@@ -254,7 +266,8 @@ fn set_note_folder(
     state: tauri::State<'_, AppState>,
 ) -> Result<NoteSummary, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    db::update_note_folder(&conn, &id, &folder, &today_iso()).map_err(|e| e.to_string())?;
+    db::update_note_folder(&conn, &id, &folder, &today_iso(), now_ms())
+        .map_err(|e| e.to_string())?;
     db::get_summary(&conn, &id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Note {id} not found"))
@@ -294,11 +307,13 @@ fn import_from_path(path: String, state: tauri::State<'_, AppState>) -> Result<u
         serde_json::from_str(&json).map_err(|_| "The file is not a valid backup".to_string())?;
     let mut guard = state.db.lock().map_err(|e| e.to_string())?;
     let tx = guard.transaction().map_err(|e| e.to_string())?;
+    // One timestamp for the whole import: every row lands as a single edit.
+    let now = now_ms();
     for f in &data.folders {
-        db::upsert_folder_ignore(&tx, &f.name, &f.color).map_err(|e| e.to_string())?;
+        db::upsert_folder_ignore(&tx, &f.name, &f.color, now).map_err(|e| e.to_string())?;
     }
     for n in &data.notes {
-        db::upsert_note(&tx, n).map_err(|e| e.to_string())?;
+        db::upsert_note(&tx, n, now).map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())?;
     Ok(data.notes.len())
@@ -366,9 +381,9 @@ pub fn run() {
             migrate_legacy_db(&dir, &db_path);
             let conn = Connection::open(&db_path)?;
             db::init(&conn)?;
-            db::seed_folders_if_empty(&conn)?;
+            db::seed_folders_if_empty(&conn, now_ms())?;
             // Purge notes that have sat in the trash past the retention window.
-            let _ = db::purge_expired(&conn, &iso_offset(TRASH_RETENTION_DAYS));
+            let _ = db::purge_expired(&conn, &iso_offset(TRASH_RETENTION_DAYS), now_ms());
             app.manage(AppState { db: Mutex::new(conn) });
             Ok(())
         })

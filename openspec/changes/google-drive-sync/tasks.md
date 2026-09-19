@@ -1,21 +1,21 @@
 ## 1. Schema foundation (shippable on its own, no sync code reachable)
 
-- [ ] 1.1 Add `updated_ms INTEGER` to `notes` in `db::init`, guarded by the same
+- [x] 1.1 Add `updated_ms INTEGER` to `notes` in `db::init`, guarded by the same
       `pragma_table_info` idempotency check used for `deleted_at` / `content_text`
-- [ ] 1.2 Backfill `updated_ms` for existing rows from each row's `updated` date (midnight UTC
+- [x] 1.2 Backfill `updated_ms` for existing rows from each row's `updated` date (midnight UTC
       of that day), in the same migration step that adds the column
-- [ ] 1.3 Create the `deletions (id TEXT PRIMARY KEY, deleted_ms INTEGER NOT NULL)` table if absent
-- [ ] 1.4 Add a `now_ms()` helper in `lib.rs` beside `today_iso()`, derived from `SystemTime`
+- [x] 1.3 Create the `deletions (id TEXT PRIMARY KEY, deleted_ms INTEGER NOT NULL)` table if absent
+- [x] 1.4 Add a `now_ms()` helper in `lib.rs` beside `today_iso()`, derived from `SystemTime`
       with no external date crate
-- [ ] 1.5 Stamp `updated_ms` in every note write path: `insert_note`, `update_note`,
+- [x] 1.5 Stamp `updated_ms` in every note write path: `insert_note`, `update_note`,
       `update_note_folder`, `toggle_favorite`, `trash_note`, `restore_note`, `upsert_note`
-- [ ] 1.6 Write tombstones inside the same transaction as the row removal in `purge_note`,
+- [x] 1.6 Write tombstones inside the same transaction as the row removal in `purge_note`,
       `empty_trash` and `purge_expired`
-- [ ] 1.7 Record a tag-list modification timestamp, updated by `insert_folder`, `delete_folder`
+- [x] 1.7 Record a tag-list modification timestamp, updated by `insert_folder`, `delete_folder`
       and any color change
-- [ ] 1.8 Unit tests: migrating a pre-`updated_ms` database backfills without touching content;
+- [x] 1.8 Unit tests: migrating a pre-`updated_ms` database backfills without touching content;
       purging writes a tombstone; each write path advances `updated_ms`
-- [ ] 1.9 Verify `cargo test` passes and the app still launches against an existing `notes.db`
+- [x] 1.9 Verify `cargo test` passes and the app still launches against an existing `notes.db`
 
 ## 2. Dependencies and Flatpak permissions
 
