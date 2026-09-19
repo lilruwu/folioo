@@ -18,9 +18,9 @@ export function formatDate(dateStr) {
   const d = new Date(dateStr + "T12:00:00");
   const now = new Date();
   const diff = Math.floor((now - d) / 86400000);
-  if (diff === 0) return "Hoy";
-  if (diff === 1) return "Ayer";
-  return d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
 // Resolve a tag's colour from the loaded folder list.

@@ -205,17 +205,17 @@ function NavItem({ icon, label, count, selected, onClick }) {
 export const Sidebar = React.memo(function Sidebar({ noteCount, favCount, folderCounts, folders, trashCount, selectedFolder, onSelectFolder, onNewTag, onDeleteTag, onOpenSettings }) {
   return (
     <aside className="sidebar">
-      <div className="sidebar-title">Notas</div>
+      <div className="sidebar-title">Notes</div>
       <nav className="sidebar-nav">
-        <NavItem icon={<IcLines />} label="Todas las notas" count={noteCount} selected={selectedFolder === "all"} onClick={() => onSelectFolder("all")} />
-        <NavItem icon={<IcStar />} label="Favoritas" count={favCount} selected={selectedFolder === "favorites"} onClick={() => onSelectFolder("favorites")} />
-        <NavItem icon={<IcClock />} label="Recientes" count={null} selected={selectedFolder === "recent"} onClick={() => onSelectFolder("recent")} />
-        <NavItem icon={<IcTrashNav />} label="Papelera" count={trashCount || null} selected={selectedFolder === "trash"} onClick={() => onSelectFolder("trash")} />
+        <NavItem icon={<IcLines />} label="All notes" count={noteCount} selected={selectedFolder === "all"} onClick={() => onSelectFolder("all")} />
+        <NavItem icon={<IcStar />} label="Favourites" count={favCount} selected={selectedFolder === "favorites"} onClick={() => onSelectFolder("favorites")} />
+        <NavItem icon={<IcClock />} label="Recent" count={null} selected={selectedFolder === "recent"} onClick={() => onSelectFolder("recent")} />
+        <NavItem icon={<IcTrashNav />} label="Trash" count={trashCount || null} selected={selectedFolder === "trash"} onClick={() => onSelectFolder("trash")} />
 
         <div className="sidebar-divider" />
         <div className="sidebar-section-row">
-          <span className="sidebar-section-label">Etiquetas</span>
-          <button className="tag-add-btn" title="Nueva etiqueta" onClick={() => onNewTag(null)}>
+          <span className="sidebar-section-label">Tags</span>
+          <button className="tag-add-btn" title="New tag" onClick={() => onNewTag(null)}>
             <IcPlus size={11} />
           </button>
         </div>
@@ -232,7 +232,7 @@ export const Sidebar = React.memo(function Sidebar({ noteCount, favCount, folder
             {folders.length > 1 && (
               <button
                 className="tag-del-btn"
-                title="Eliminar etiqueta"
+                title="Delete tag"
                 onClick={(e) => {
                   e.stopPropagation();
                   onDeleteTag(f);
@@ -246,7 +246,7 @@ export const Sidebar = React.memo(function Sidebar({ noteCount, favCount, folder
       </nav>
 
       <div className="sidebar-footer">
-        <NavItem icon={<IcSettings />} label="Configuración" count={null} selected={false} onClick={onOpenSettings} />
+        <NavItem icon={<IcSettings />} label="Settings" count={null} selected={false} onClick={onOpenSettings} />
       </div>
     </aside>
   );
@@ -262,10 +262,10 @@ const NoteCard = React.memo(function NoteCard({ note, selected, trashMode, onSel
     <div className={`note-card${selected ? " selected" : ""}`} onClick={() => onSelect(note.id)}>
       <div className="note-card-title">
         {note.favorite && !trashMode && <span className="note-fav-dot" />}
-        {note.title || <span style={{ opacity: 0.38 }}>Sin título</span>}
+        {note.title || <span style={{ opacity: 0.38 }}>Untitled</span>}
       </div>
       <div className="note-card-date">
-        {trashMode ? (days === 0 ? "Se elimina hoy" : `Quedan ${days} día${days === 1 ? "" : "s"}`) : formatDate(note.updated)}
+        {trashMode ? (days === 0 ? "Deleted today" : `${days} day${days === 1 ? "" : "s"} left`) : formatDate(note.updated)}
       </div>
     </div>
   );
@@ -282,25 +282,25 @@ export function NoteListPanel({ notes, selectedId, trashMode, onSelectNote, onCr
         ) : (
           <button className="new-note-btn" onClick={onCreateNote}>
             <IcPlus />
-            <span>Nueva nota</span>
+            <span>New note</span>
           </button>
         )}
         <input
           ref={searchRef}
           className="search-box"
           type="text"
-          placeholder={trashMode ? "Buscar en la papelera…" : "Buscar notas…"}
+          placeholder={trashMode ? "Search the trash…" : "Search notes…"}
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
         />
       </div>
       {trashMode && notes.length > 0 && (
-        <div className="trash-hint">Las notas se eliminan tras 30 días en la papelera.</div>
+        <div className="trash-hint">Notes are deleted after 30 days in the trash.</div>
       )}
       <div className="notes-scroll">
         {notes.length === 0 ? (
           <div className="empty-state">
-            {searchQuery ? "Sin resultados" : trashMode ? "La papelera está vacía" : "Sin notas en esta carpeta"}
+            {searchQuery ? "No results" : trashMode ? "The trash is empty" : "No notes in this folder"}
           </div>
         ) : (
           notes.map((note) => (
@@ -337,7 +337,7 @@ function TagDropdown({ note, folders, onChangeFolder, onNewTag }) {
         className="folder-chip folder-chip-btn"
         style={{ background: color + "20", color }}
         onClick={() => setOpen((o) => !o)}
-        title="Cambiar etiqueta"
+        title="Change tag"
       >
         <span className="folder-chip-dot" style={{ background: color }} />
         {note.folder}
@@ -394,21 +394,21 @@ function TrashedNoteView({ note, onRestore, onPurge }) {
     <div className="editor-panel">
       <div className="trash-bar">
         <span className="trash-bar-text">
-          En la papelera · {days === 0 ? "se elimina hoy" : `se elimina en ${days} día${days === 1 ? "" : "s"}`}
+          In the trash · {days === 0 ? "deleted today" : `deleted in ${days} day${days === 1 ? "" : "s"}`}
         </span>
         <div className="trash-bar-actions">
           <button className="trash-action restore" onClick={() => onRestore(note.id)}>
             <IcRestore />
-            <span>Restaurar</span>
+            <span>Restore</span>
           </button>
           <button className="trash-action purge" onClick={() => onPurge(note.id)}>
             <IcTrash size={13} />
-            <span>Eliminar definitivamente</span>
+            <span>Delete permanently</span>
           </button>
         </div>
       </div>
       <div className="editor-body">
-        <div className="editor-title editor-title-static">{note.title || "Sin título"}</div>
+        <div className="editor-title editor-title-static">{note.title || "Untitled"}</div>
         <div className="editor-content editor-content-static" dangerouslySetInnerHTML={{ __html: note.content }} />
       </div>
     </div>
@@ -1146,7 +1146,7 @@ export function Editor({ note, folders, trashMode, onUpdate, onDelete, onToggleF
     img.src = dataUrl;
     img.className = "sketch";
     img.setAttribute("data-sketch", "1");
-    img.title = "Clic para editar el dibujo";
+    img.title = "Click to edit the sketch";
     const range = sel.rangeCount ? sel.getRangeAt(0) : null;
     if (range) {
       range.collapse(false);
@@ -1580,7 +1580,7 @@ export function Editor({ note, folders, trashMode, onUpdate, onDelete, onToggleF
   if (!note) {
     return (
       <div className="editor-panel no-selection" style={{ display: "flex" }}>
-        <p>{trashMode ? "Selecciona una nota de la papelera" : "Selecciona una nota o crea una nueva"}</p>
+        <p>{trashMode ? "Select a note from the trash" : "Select a note or create a new one"}</p>
         {!trashMode && <span className="shortcut-hint">Ctrl + N</span>}
       </div>
     );
@@ -1594,41 +1594,41 @@ export function Editor({ note, folders, trashMode, onUpdate, onDelete, onToggleF
     <div className="editor-panel">
       {/* ── Toolbar ── */}
       <div className="editor-toolbar">
-        <button className={`toolbar-btn bold${marks.bold ? " active" : ""}`} onClick={() => fmt("bold")} title="Negrita (Ctrl+B)">B</button>
-        <button className={`toolbar-btn italic${marks.italic ? " active" : ""}`} onClick={() => fmt("italic")} title="Cursiva (Ctrl+I)">I</button>
-        <button className={`toolbar-btn underline${marks.underline ? " active" : ""}`} onClick={() => fmt("underline")} title="Subrayado (Ctrl+U)">U</button>
+        <button className={`toolbar-btn bold${marks.bold ? " active" : ""}`} onClick={() => fmt("bold")} title="Bold (Ctrl+B)">B</button>
+        <button className={`toolbar-btn italic${marks.italic ? " active" : ""}`} onClick={() => fmt("italic")} title="Italic (Ctrl+I)">I</button>
+        <button className={`toolbar-btn underline${marks.underline ? " active" : ""}`} onClick={() => fmt("underline")} title="Underline (Ctrl+U)">U</button>
         <div className="toolbar-sep" />
-        <button className={`toolbar-btn${marks.block === "h1" ? " active" : ""}`} onClick={() => toggleBlock("h1")} title="Título 1">H1</button>
-        <button className={`toolbar-btn${marks.block === "h2" ? " active" : ""}`} onClick={() => toggleBlock("h2")} title="Título 2">H2</button>
-        <button className={`toolbar-btn${marks.block === "h3" ? " active" : ""}`} onClick={() => toggleBlock("h3")} title="Título 3">H3</button>
+        <button className={`toolbar-btn${marks.block === "h1" ? " active" : ""}`} onClick={() => toggleBlock("h1")} title="Heading 1">H1</button>
+        <button className={`toolbar-btn${marks.block === "h2" ? " active" : ""}`} onClick={() => toggleBlock("h2")} title="Heading 2">H2</button>
+        <button className={`toolbar-btn${marks.block === "h3" ? " active" : ""}`} onClick={() => toggleBlock("h3")} title="Heading 3">H3</button>
         <div className="toolbar-sep" />
-        <button className={`toolbar-btn${marks.ul ? " active" : ""}`} onClick={() => fmt("insertUnorderedList")} title="Lista">· Lista</button>
-        <button className={`toolbar-btn${marks.ol ? " active" : ""}`} onClick={() => fmt("insertOrderedList")} title="Lista numerada">1. Lista</button>
-        <button className="toolbar-btn icon" onClick={insertTodo} title="Lista de tareas">
+        <button className={`toolbar-btn${marks.ul ? " active" : ""}`} onClick={() => fmt("insertUnorderedList")} title="Bullet list">· List</button>
+        <button className={`toolbar-btn${marks.ol ? " active" : ""}`} onClick={() => fmt("insertOrderedList")} title="Numbered list">1. List</button>
+        <button className="toolbar-btn icon" onClick={insertTodo} title="To-do list">
           <IcCheckSquare />
         </button>
         <div className="toolbar-sep" />
-        <button className="toolbar-btn icon" onClick={() => fileInputRef.current && fileInputRef.current.click()} title="Insertar imagen">
+        <button className="toolbar-btn icon" onClick={() => fileInputRef.current && fileInputRef.current.click()} title="Insert image">
           <IcImage />
         </button>
-        <button className="toolbar-btn icon" onMouseDown={(e) => e.preventDefault()} onClick={openDraw} title="Dibujar">
+        <button className="toolbar-btn icon" onMouseDown={(e) => e.preventDefault()} onClick={openDraw} title="Draw">
           <IcPencil />
         </button>
-        <button className={`toolbar-btn icon${marks.inTable ? " active" : ""}`} onMouseDown={(e) => e.preventDefault()} onClick={() => insertTable(2, 2)} title="Insertar tabla">
+        <button className={`toolbar-btn icon${marks.inTable ? " active" : ""}`} onMouseDown={(e) => e.preventDefault()} onClick={() => insertTable(2, 2)} title="Insert table">
           <IcTable />
         </button>
-        <button className={`toolbar-btn${marks.block === "pre" ? " active" : ""}`} onClick={() => toggleBlock("pre")} title="Bloque de código" style={{ fontFamily: "monospace", letterSpacing: "0.03em" }}>
+        <button className={`toolbar-btn${marks.block === "pre" ? " active" : ""}`} onClick={() => toggleBlock("pre")} title="Code block" style={{ fontFamily: "monospace", letterSpacing: "0.03em" }}>
           {"</>"}
         </button>
 
         {marks.inTable && (
           <>
             <div className="toolbar-sep" />
-            <button className="toolbar-btn icon" onMouseDown={(e) => e.preventDefault()} onClick={() => setColumnAlign("left")} title="Alinear columna a la izquierda"><IcAlignLeft /></button>
-            <button className="toolbar-btn icon" onMouseDown={(e) => e.preventDefault()} onClick={() => setColumnAlign("center")} title="Centrar columna"><IcAlignCenter /></button>
-            <button className="toolbar-btn icon" onMouseDown={(e) => e.preventDefault()} onClick={() => setColumnAlign("right")} title="Alinear columna a la derecha"><IcAlignRight /></button>
+            <button className="toolbar-btn icon" onMouseDown={(e) => e.preventDefault()} onClick={() => setColumnAlign("left")} title="Align column left"><IcAlignLeft /></button>
+            <button className="toolbar-btn icon" onMouseDown={(e) => e.preventDefault()} onClick={() => setColumnAlign("center")} title="Align column centre"><IcAlignCenter /></button>
+            <button className="toolbar-btn icon" onMouseDown={(e) => e.preventDefault()} onClick={() => setColumnAlign("right")} title="Align column right"><IcAlignRight /></button>
             <div className="toolbar-sep" />
-            <button className="toolbar-btn tbl-del" onMouseDown={(e) => e.preventDefault()} onClick={deleteTable} title="Eliminar la tabla entera">Borrar tabla</button>
+            <button className="toolbar-btn tbl-del" onMouseDown={(e) => e.preventDefault()} onClick={deleteTable} title="Delete the whole table">Delete table</button>
           </>
         )}
 
@@ -1636,18 +1636,18 @@ export function Editor({ note, folders, trashMode, onUpdate, onDelete, onToggleF
           <button
             className={`toolbar-btn icon${find.open ? " active" : ""}`}
             onClick={() => (find.open ? closeFind() : openFind())}
-            title="Buscar en la nota"
+            title="Find in note"
           >
             <IcSearch />
           </button>
           <button
             className={`toolbar-btn fav${note.favorite ? " on" : ""}`}
             onClick={() => onToggleFavorite(note.id)}
-            title={note.favorite ? "Quitar de favoritos" : "Añadir a favoritos"}
+            title={note.favorite ? "Remove from favourites" : "Add to favourites"}
           >
             {note.favorite ? "★" : "☆"}
           </button>
-          <button className="toolbar-btn del" onClick={() => onDelete(note.id)} title="Eliminar nota">
+          <button className="toolbar-btn del" onClick={() => onDelete(note.id)} title="Delete note">
             <IcTrash />
           </button>
         </div>
@@ -1660,7 +1660,7 @@ export function Editor({ note, folders, trashMode, onUpdate, onDelete, onToggleF
             id="note-find-input"
             className="find-input"
             type="text"
-            placeholder="Buscar en la nota…"
+            placeholder="Find in note…"
             value={find.query}
             onChange={(e) => runFind(e.target.value)}
             onKeyDown={(e) => {
@@ -1669,9 +1669,9 @@ export function Editor({ note, folders, trashMode, onUpdate, onDelete, onToggleF
             }}
           />
           <span className="find-count">{find.count ? `${find.index + 1}/${find.count}` : "0/0"}</span>
-          <button className="find-nav" onClick={() => gotoMatch(-1)} title="Anterior" disabled={!find.count}>↑</button>
-          <button className="find-nav" onClick={() => gotoMatch(1)} title="Siguiente" disabled={!find.count}>↓</button>
-          <button className="find-nav" onClick={closeFind} title="Cerrar">✕</button>
+          <button className="find-nav" onClick={() => gotoMatch(-1)} title="Previous" disabled={!find.count}>↑</button>
+          <button className="find-nav" onClick={() => gotoMatch(1)} title="Next" disabled={!find.count}>↓</button>
+          <button className="find-nav" onClick={closeFind} title="Close">✕</button>
         </div>
       )}
 
@@ -1680,7 +1680,7 @@ export function Editor({ note, folders, trashMode, onUpdate, onDelete, onToggleF
         <div className="editor-meta-row">
           <TagDropdown note={note} folders={folders} onChangeFolder={onChangeFolder} onNewTag={onNewTag} />
           <span className="editor-date-text">{formatDate(note.updated)}</span>
-          <span className="autosave-hint">Guardado automáticamente</span>
+          <span className="autosave-hint">Saved automatically</span>
         </div>
 
         <div
@@ -1690,7 +1690,7 @@ export function Editor({ note, folders, trashMode, onUpdate, onDelete, onToggleF
           suppressContentEditableWarning
           onInput={scheduleSave}
           onKeyDown={handleTitleKeyDown}
-          data-placeholder="Sin título"
+          data-placeholder="Untitled"
         />
 
         <div
@@ -1710,7 +1710,7 @@ export function Editor({ note, folders, trashMode, onUpdate, onDelete, onToggleF
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
           onDragOver={(e) => e.preventDefault()}
-          data-placeholder="Empieza a escribir…"
+          data-placeholder="Start writing…"
         />
 
         {/* In-table "+" handles (Obsidian-style), anchored to the active table */}
@@ -1721,7 +1721,7 @@ export function Editor({ note, folders, trashMode, onUpdate, onDelete, onToggleF
               style={{ top: tableBox.top, left: tableBox.left + tableBox.w + 5, height: tableBox.h }}
               onMouseDown={(e) => e.preventDefault()}
               onClick={addColumnEnd}
-              title="Añadir columna"
+              title="Add column"
             >
               +
             </button>
@@ -1730,7 +1730,7 @@ export function Editor({ note, folders, trashMode, onUpdate, onDelete, onToggleF
               style={{ top: tableBox.top + tableBox.h + 5, left: tableBox.left, width: tableBox.w }}
               onMouseDown={(e) => e.preventDefault()}
               onClick={addRowEnd}
-              title="Añadir fila"
+              title="Add row"
             >
               +
             </button>
@@ -1743,7 +1743,7 @@ export function Editor({ note, folders, trashMode, onUpdate, onDelete, onToggleF
                 style={{ left: c.left, top: tableBox.top - 17, width: c.width }}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => deleteColumnAt(i)}
-                title="Eliminar columna"
+                title="Delete column"
               >
                 −
               </button>
@@ -1756,7 +1756,7 @@ export function Editor({ note, folders, trashMode, onUpdate, onDelete, onToggleF
                 style={{ top: r.top, left: tableBox.left - 17, height: r.height }}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => deleteRowAt(i)}
-                title="Eliminar fila"
+                title="Delete row"
               >
                 −
               </button>
@@ -1800,30 +1800,30 @@ export function NewTagModal({ open, onClose, onCreate, error }) {
   return (
     <Modal
       open={open}
-      title="Nueva etiqueta"
+      title="New tag"
       onClose={onClose}
       width={360}
       footer={
         <>
-          <button className="btn-ghost" onClick={onClose}>Cancelar</button>
-          <button className="btn-primary" onClick={submit} disabled={!name.trim()}>Crear</button>
+          <button className="btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" onClick={submit} disabled={!name.trim()}>Create</button>
         </>
       }
     >
-      <label className="field-label" htmlFor="tag-name">Nombre</label>
+      <label className="field-label" htmlFor="tag-name">Name</label>
       <input
         id="tag-name"
         ref={inputRef}
         className="text-input"
         type="text"
         maxLength={24}
-        placeholder="p. ej. Recetas"
+        placeholder="e.g. Recipes"
         value={name}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && submit()}
       />
 
-      <label className="field-label" style={{ marginTop: 14 }}>Color</label>
+      <label className="field-label" style={{ marginTop: 14 }}>Colour</label>
       <div className="color-grid">
         {TAG_PALETTE.map((c) => (
           <button

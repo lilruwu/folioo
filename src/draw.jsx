@@ -150,18 +150,18 @@ export function DrawModal({ open, onClose, onSave, initialImage }) {
               key={s}
               className={`draw-size${!eraser && size === s ? " sel" : ""}`}
               onClick={() => { setSize(s); setEraser(false); }}
-              title={`Grosor ${s}`}
+              title={`Size ${s}`}
             >
               <span style={{ width: s + 2, height: s + 2 }} />
             </button>
           ))}
           <div className="draw-sep" />
-          <button className={`draw-tool${eraser ? " sel" : ""}`} onClick={() => setEraser(true)} title="Goma">Goma</button>
-          <button className="draw-tool" onClick={undo} title="Deshacer">↶</button>
-          <button className="draw-tool" onClick={clearAll} title="Limpiar todo">Limpiar</button>
+          <button className={`draw-tool${eraser ? " sel" : ""}`} onClick={() => setEraser(true)} title="Eraser">Eraser</button>
+          <button className="draw-tool" onClick={undo} title="Undo">↶</button>
+          <button className="draw-tool" onClick={clearAll} title="Clear all">Clear</button>
           <div className="draw-actions">
-            <button className="btn-ghost" onClick={onClose}>Cancelar</button>
-            <button className="btn-primary" onClick={save}>Insertar</button>
+            <button className="btn-ghost" onClick={onClose}>Cancel</button>
+            <button className="btn-primary" onClick={save}>Insert</button>
           </div>
         </div>
         <div className="draw-canvas-wrap" ref={wrapRef}>

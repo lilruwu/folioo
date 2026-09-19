@@ -26,9 +26,9 @@ prototype; the Rust backend stores notes in a local **SQLite** database.
 - **Markdown shortcuts** while typing: `# `/`## `/`### ` headings, `- `/`* ` bullets,
   `1. ` numbered, `> ` quote, `[] ` to-do, and inline `**bold**`, `*italic*`, `` `code` ``.
 - **Trash** with 30-day retention (restore / delete forever / empty), plus a
-  Configuración panel for theme, mode and font size.
+  Settings panel for theme, mode and font size.
 - **Backup** — export all notes + tags to a JSON file and import it on another
-  machine (Configuración → Datos). Import merges by id, so it's non-destructive.
+  machine (Settings → Data). Import merges by id, so it's non-destructive.
 - **Themed app icon** — a notepad mark whose accent follows the active theme
   (the window icon is retinted at runtime; honoured by desktops that show window icons).
 
@@ -39,7 +39,7 @@ prototype; the Rust backend stores notes in a local **SQLite** database.
 - **Storage:** SQLite via `rusqlite` (bundled — no system SQLite needed). The
   database lives in the platform app-data directory (e.g.
   `~/.local/share/org.folioo.app/notes.db`). The app starts with **no notes**;
-  a default set of **tags** (Trabajo · Personal · Proyectos · Ideas) is seeded so
+  a default set of **tags** (Work · Personal · Projects · Ideas) is seeded so
   notes can be categorised right away. Tags can be created and deleted from the UI.
   On first launch after the rename the app adopts the database from the old
   `org.linuxnotes.app` directory if it hasn't got one yet, so upgrading from

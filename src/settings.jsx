@@ -1,5 +1,5 @@
 // settings.jsx — theme preferences, persisted to localStorage and presented
-// in a proper Configuración modal (no more floating panel).
+// in a proper Settings modal (no more floating panel).
 import React from "react";
 import { Modal, Segmented, Slider, Field } from "./ui.jsx";
 
@@ -33,48 +33,48 @@ export function useSettings(defaults) {
 
 export function SettingsModal({ open, onClose, settings, onChange, onExport, onImport, importMsg }) {
   return (
-    <Modal open={open} title="Configuración" onClose={onClose} width={400}>
-      <div className="settings-section">Apariencia</div>
+    <Modal open={open} title="Settings" onClose={onClose} width={400}>
+      <div className="settings-section">Appearance</div>
 
-      <Field label="Estilo">
+      <Field label="Style">
         <Segmented
           value={settings.variant}
           options={[
-            { value: "paper", label: "Papel" },
-            { value: "slate", label: "Pizarra" },
-            { value: "forest", label: "Bosque" },
+            { value: "paper", label: "Paper" },
+            { value: "slate", label: "Slate" },
+            { value: "forest", label: "Forest" },
           ]}
           onChange={(v) => onChange("variant", v)}
         />
       </Field>
 
-      <Field label="Modo">
+      <Field label="Mode">
         <Segmented
           value={settings.theme}
           options={[
-            { value: "light", label: "Claro" },
-            { value: "dark", label: "Oscuro" },
-            { value: "auto", label: "Automático" },
+            { value: "light", label: "Light" },
+            { value: "dark", label: "Dark" },
+            { value: "auto", label: "Auto" },
           ]}
           onChange={(v) => onChange("theme", v)}
         />
       </Field>
 
-      <Field label="Fondo translúcido">
+      <Field label="Translucent background">
         <Segmented
           value={settings.translucid}
           options={[
-            { value: false, label: "Desactivado" },
-            { value: true, label: "Activado" },
+            { value: false, label: "Off" },
+            { value: true, label: "On" },
           ]}
           onChange={(v) => onChange("translucid", v)}
         />
-        <p className="settings-hint">Recomendado para KDE Plasma con compositor.</p>
+        <p className="settings-hint">Recommended for KDE Plasma with a compositor.</p>
       </Field>
 
-      <div className="settings-section">Tipografía</div>
+      <div className="settings-section">Typography</div>
 
-      <Field label="Tamaño del texto" value={`${settings.fontSize}px`}>
+      <Field label="Text size" value={`${settings.fontSize}px`}>
         <Slider
           value={settings.fontSize}
           min={13}
@@ -84,13 +84,13 @@ export function SettingsModal({ open, onClose, settings, onChange, onExport, onI
         />
       </Field>
 
-      <div className="settings-section">Datos</div>
+      <div className="settings-section">Data</div>
       <p className="settings-hint">
-        Exporta una copia de seguridad de todas tus notas y etiquetas, o impórtala en otro equipo.
+        Export a backup of all your notes and tags, or import one on another machine.
       </p>
       <div className="settings-actions">
-        <button className="btn-ghost" onClick={onExport}>Exportar copia…</button>
-        <button className="btn-ghost" onClick={onImport}>Importar copia…</button>
+        <button className="btn-ghost" onClick={onExport}>Export backup…</button>
+        <button className="btn-ghost" onClick={onImport}>Import backup…</button>
       </div>
       {importMsg && <div className="settings-note">{importMsg}</div>}
     </Modal>

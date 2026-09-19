@@ -212,14 +212,14 @@ fn create_folder(
 ) -> Result<Folder, String> {
     let name = name.trim().to_string();
     if name.is_empty() {
-        return Err("El nombre de la etiqueta no puede estar vacío".into());
+        return Err("The tag name cannot be empty".into());
     }
     if name.chars().count() > 24 {
-        return Err("El nombre es demasiado largo (máx. 24 caracteres)".into());
+        return Err("The name is too long (max. 24 characters)".into());
     }
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     if db::folder_exists(&conn, &name).map_err(|e| e.to_string())? {
-        return Err(format!("La etiqueta «{name}» ya existe"));
+        return Err(format!("The tag \"{name}\" already exists"));
     }
     db::insert_folder(&conn, &name, &color).map_err(|e| e.to_string())?;
     Ok(Folder { name, color })
@@ -238,11 +238,11 @@ fn delete_folder(
 ) -> Result<DeleteFolderResult, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     if db::folder_count(&conn).map_err(|e| e.to_string())? <= 1 {
-        return Err("Debe existir al menos una etiqueta".into());
+        return Err("At least one tag must exist".into());
     }
     let fallback = db::first_folder_except(&conn, &name)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| "No hay otra etiqueta a la que mover las notas".to_string())?;
+        .ok_or_else(|| "There is no other tag to move the notes to".to_string())?;
     db::delete_folder(&conn, &name, &fallback).map_err(|e| e.to_string())?;
     Ok(DeleteFolderResult { fallback })
 }
@@ -291,7 +291,7 @@ fn export_to_path(path: String, state: tauri::State<'_, AppState>) -> Result<(),
 fn import_from_path(path: String, state: tauri::State<'_, AppState>) -> Result<usize, String> {
     let json = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let data: ExportData =
-        serde_json::from_str(&json).map_err(|_| "El archivo no es una copia válida".to_string())?;
+        serde_json::from_str(&json).map_err(|_| "The file is not a valid backup".to_string())?;
     let mut guard = state.db.lock().map_err(|e| e.to_string())?;
     let tx = guard.transaction().map_err(|e| e.to_string())?;
     for f in &data.folders {

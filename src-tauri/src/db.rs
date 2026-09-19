@@ -363,9 +363,9 @@ pub fn seed_folders_if_empty(conn: &Connection) -> Result<()> {
         return Ok(());
     }
     let defaults = [
-        ("Trabajo", "#4B85E8"),
+        ("Work", "#4B85E8"),
         ("Personal", "#52B46B"),
-        ("Proyectos", "#E8A23A"),
+        ("Projects", "#E8A23A"),
         ("Ideas", "#E85252"),
     ];
     for (i, (name, color)) in defaults.iter().enumerate() {

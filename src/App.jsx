@@ -207,11 +207,11 @@ export default function App() {
     (id) => {
       const note = notes.find((n) => n.id === id);
       if (!note) return;
-      const title = note.title || "Sin título";
+      const title = note.title || "Untitled";
       setConfirm({
-        title: "Mover a la papelera",
-        message: `«${title}» se moverá a la papelera. Podrás restaurarla durante 30 días.`,
-        confirmLabel: "Mover a la papelera",
+        title: "Move to trash",
+        message: `"${title}" will be moved to the trash. You can restore it for 30 days.`,
+        confirmLabel: "Move to trash",
         onConfirm: async () => {
           const summary = await api.deleteNote(id);
           setNotes((prev) => prev.filter((n) => n.id !== id));
@@ -235,12 +235,12 @@ export default function App() {
   const askPurgeNote = React.useCallback(
     (id) => {
       const note = trash.find((n) => n.id === id);
-      const title = note?.title || "Sin título";
+      const title = note?.title || "Untitled";
       setConfirm({
-        title: "Eliminar definitivamente",
+        title: "Delete permanently",
         danger: true,
-        confirmLabel: "Eliminar",
-        message: `«${title}» se eliminará para siempre. Esta acción no se puede deshacer.`,
+        confirmLabel: "Delete",
+        message: `"${title}" will be deleted forever. This cannot be undone.`,
         onConfirm: async () => {
           await api.purgeNote(id);
           setTrash((prev) => prev.filter((n) => n.id !== id));
@@ -253,10 +253,10 @@ export default function App() {
   const askEmptyTrash = React.useCallback(() => {
     const count = trash.length;
     setConfirm({
-      title: "Vaciar papelera",
+      title: "Empty trash",
       danger: true,
-      confirmLabel: "Vaciar papelera",
-      message: `Se eliminarán ${count} nota${count === 1 ? "" : "s"} para siempre. Esta acción no se puede deshacer.`,
+      confirmLabel: "Empty trash",
+      message: `${count} note${count === 1 ? "" : "s"} will be deleted forever. This cannot be undone.`,
       onConfirm: async () => {
         await api.emptyTrash();
         setTrash([]);
@@ -299,13 +299,13 @@ export default function App() {
       const used = counts.byFolder[folder.name] || 0;
       const fallback = folders.find((f) => f.name !== folder.name)?.name;
       setConfirm({
-        title: "Eliminar etiqueta",
+        title: "Delete tag",
         danger: true,
-        confirmLabel: "Eliminar",
+        confirmLabel: "Delete",
         message:
           used > 0
-            ? `Se eliminará «${folder.name}». Sus ${used} nota${used === 1 ? "" : "s"} pasarán a «${fallback}».`
-            : `Se eliminará la etiqueta «${folder.name}». Esta acción no se puede deshacer.`,
+            ? `"${folder.name}" will be deleted. Its ${used} note${used === 1 ? "" : "s"} will move to "${fallback}".`
+            : `The tag "${folder.name}" will be deleted. This cannot be undone.`,
         onConfirm: async () => {
           const { fallback: moved } = await api.deleteFolder(folder.name);
           setFolders((prev) => prev.filter((f) => f.name !== folder.name));
@@ -334,10 +334,10 @@ export default function App() {
       });
       if (!path) return;
       await api.exportToPath(path);
-      setImportMsg("Copia exportada correctamente.");
+      setImportMsg("Backup exported successfully.");
     } catch (e) {
       console.error("Export failed:", e);
-      setImportMsg("No se pudo exportar la copia.");
+      setImportMsg("Could not export the backup.");
     }
   }, []);
 
@@ -354,10 +354,10 @@ export default function App() {
       setNotes(n);
       setTrash(t);
       setFolders(f);
-      setImportMsg(`Importadas ${count} nota${count === 1 ? "" : "s"}.`);
+      setImportMsg(`Imported ${count} note${count === 1 ? "" : "s"}.`);
     } catch (e) {
       console.error("Import failed:", e);
-      setImportMsg("No se pudo importar el archivo.");
+      setImportMsg("Could not import the file.");
     }
   }, []);
 

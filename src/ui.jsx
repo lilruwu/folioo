@@ -23,7 +23,7 @@ export function Modal({ open, title, onClose, children, width = 380, footer }) {
       >
         <div className="modal-head">
           <span className="modal-title">{title}</span>
-          <button className="modal-x" aria-label="Cerrar" onClick={onClose}>
+          <button className="modal-x" aria-label="Close" onClick={onClose}>
             ✕
           </button>
         </div>
@@ -97,7 +97,7 @@ export function Slider({ value, min = 0, max = 100, step = 1, onChange }) {
 }
 
 // Confirmation dialog with an optional destructive accent.
-export function ConfirmModal({ open, title, message, confirmLabel = "Aceptar", danger, onConfirm, onClose }) {
+export function ConfirmModal({ open, title, message, confirmLabel = "OK", danger, onConfirm, onClose }) {
   return (
     <Modal
       open={open}
@@ -106,7 +106,7 @@ export function ConfirmModal({ open, title, message, confirmLabel = "Aceptar", d
       width={360}
       footer={
         <>
-          <button className="btn-ghost" onClick={onClose}>Cancelar</button>
+          <button className="btn-ghost" onClick={onClose}>Cancel</button>
           <button className={danger ? "btn-danger" : "btn-primary"} onClick={onConfirm}>
             {confirmLabel}
           </button>

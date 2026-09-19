@@ -64,7 +64,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Folioo ${{ github.ref_name }}"
-          releaseBody: "Descarga el `.deb` (Debian/Ubuntu), `.rpm` (Fedora), `.AppImage` (ejecutable directo) o `.flatpak` de los Assets de abajo."
+          releaseBody: "Download the `.deb` (Debian/Ubuntu), `.rpm` (Fedora), `.AppImage` (run directly) or `.flatpak` from the Assets below."
           releaseDraft: true
           prerelease: false
           args: --bundles deb,rpm,appimage
