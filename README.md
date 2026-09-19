@@ -1,6 +1,6 @@
-# Linux Notes — Desktop (Tauri + React + SQLite)
+# Folioo — Desktop (Tauri + React + SQLite)
 
-A native, fast desktop build of **Linux Notes**, an open-source Apple Notes
+A native, fast desktop build of **Folioo**, an open-source Apple Notes
 alternative for Linux. The UI is the same warm, paper-inspired design from the
 prototype; the Rust backend stores notes in a local **SQLite** database.
 
@@ -38,9 +38,14 @@ prototype; the Rust backend stores notes in a local **SQLite** database.
 - **UI:** React 18 + Vite (the exact prototype design, pixel-for-pixel).
 - **Storage:** SQLite via `rusqlite` (bundled — no system SQLite needed). The
   database lives in the platform app-data directory (e.g.
-  `~/.local/share/org.linuxnotes.app/notes.db`). The app starts with **no notes**;
+  `~/.local/share/org.folioo.app/notes.db`). The app starts with **no notes**;
   a default set of **tags** (Trabajo · Personal · Proyectos · Ideas) is seeded so
   notes can be categorised right away. Tags can be created and deleted from the UI.
+  On first launch after the rename the app adopts the database from the old
+  `org.linuxnotes.app` directory if it hasn't got one yet, so upgrading from
+  Linux Notes keeps every note. This doesn't apply to **Flatpak**, where the old
+  data sits in another sandbox the new app can't read — export a backup from the
+  old build and import it here instead.
 
 ## Architecture
 
@@ -91,7 +96,7 @@ npm run tauri build -- --bundles deb,rpm,appimage   # in src-tauri/target/releas
 Verify the `.deb` is well-formed before installing:
 
 ```bash
-ar t "src-tauri/target/release/bundle/deb/Linux Notes_0.1.0_amd64.deb"
+ar t "src-tauri/target/release/bundle/deb/Folioo_0.1.0_amd64.deb"
 # should print: debian-binary / control.tar.gz / data.tar.gz
 ```
 
@@ -115,13 +120,13 @@ flatpak install flathub org.gnome.Platform//46 org.gnome.Sdk//46
 
 cd desktop
 npm run tauri build -- --bundles deb
-cp "src-tauri/target/release/bundle/deb/"*amd64.deb flatpak/linux-notes.deb
+cp "src-tauri/target/release/bundle/deb/"*amd64.deb flatpak/folioo.deb
 
-flatpak-builder --user --force-clean --repo flatpak-repo flatpak-build flatpak/org.linuxnotes.app.yml
-flatpak build-bundle flatpak-repo linux-notes.flatpak org.linuxnotes.app \
+flatpak-builder --user --force-clean --repo flatpak-repo flatpak-build flatpak/org.folioo.app.yml
+flatpak build-bundle flatpak-repo folioo.flatpak org.folioo.app \
   --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
 # install & run:
-flatpak install --user linux-notes.flatpak && flatpak run org.linuxnotes.app
+flatpak install --user folioo.flatpak && flatpak run org.folioo.app
 ```
 
 ## Automated releases (GitHub Actions)

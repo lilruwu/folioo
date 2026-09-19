@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Linux Notes</title>
+    <title>Folioo</title>
     <!-- Lora, self-hosted from public/fonts — no network fetch, works offline. -->
     <link href="/fonts/lora.css" rel="stylesheet" />
     <!--
@@ -15,7 +15,11 @@
       (function () {
         try {
           var d = document.documentElement;
-          var s = JSON.parse(localStorage.getItem("linux-notes-settings") || "{}");
+          var raw =
+            localStorage.getItem("folioo-settings") ||
+            localStorage.getItem("linux-notes-settings") || // pre-rename key
+            "{}";
+          var s = JSON.parse(raw);
           var variant = s.variant || "paper";
           var theme = s.theme || "auto";
           if (theme === "auto") {

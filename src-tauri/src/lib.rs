@@ -1,4 +1,4 @@
-// lib.rs — Linux Notes backend.
+// lib.rs — Folioo backend.
 // Persists notes in a local SQLite database and exposes CRUD commands to the
 // React frontend over Tauri's IPC bridge.
 
@@ -275,7 +275,7 @@ struct ExportData {
 fn export_to_path(path: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let data = ExportData {
-        app: "linux-notes".into(),
+        app: "folioo".into(),
         version: 1,
         folders: db::list_folders(&conn).map_err(|e| e.to_string())?,
         notes: db::list_all_notes(&conn).map_err(|e| e.to_string())?,
@@ -304,6 +304,52 @@ fn import_from_path(path: String, state: tauri::State<'_, AppState>) -> Result<u
     Ok(data.notes.len())
 }
 
+// ── Legacy data migration ───────────────────────────────────────────────────
+
+/// Bundle identifier used before the app was renamed to Folioo.
+const LEGACY_IDENTIFIER: &str = "org.linuxnotes.app";
+const IDENTIFIER: &str = "org.folioo.app";
+
+/// Adopt the database left behind by the pre-rename app, if any.
+///
+/// The app-data directory is derived from the bundle identifier, so renaming
+/// the app points it at a brand-new (empty) directory while the user's notes
+/// still sit in the old one. Swapping the identifier inside the resolved path
+/// finds the old directory for a plain install (`~/.local/share/<id>`).
+///
+/// It does NOT rescue a Flatpak install: the old data lives in
+/// `~/.var/app/org.linuxnotes.app/`, which this sandbox cannot read. Those
+/// users have to export a backup from the old build and import it here.
+///
+/// The copy only happens when the new database does not exist yet, so it never
+/// overwrites newer data and is a no-op on every launch after the first.
+fn migrate_legacy_db(dir: &std::path::Path, db_path: &std::path::Path) {
+    if db_path.exists() {
+        return;
+    }
+    let Some(legacy_dir) = dir
+        .to_str()
+        .map(|p| p.replace(IDENTIFIER, LEGACY_IDENTIFIER))
+        .map(std::path::PathBuf::from)
+    else {
+        return;
+    };
+    if legacy_dir == dir {
+        return;
+    }
+    // SQLite may keep the WAL and shared-memory files alongside the database;
+    // copy whichever exist so a non-checkpointed WAL isn't left behind.
+    for suffix in ["", "-wal", "-shm"] {
+        let name = format!("notes.db{suffix}");
+        let from = legacy_dir.join(&name);
+        if from.exists() {
+            if let Err(e) = std::fs::copy(&from, dir.join(&name)) {
+                eprintln!("Could not migrate {name} from the previous version: {e}");
+            }
+        }
+    }
+}
+
 // ── Entry point ─────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -315,7 +361,10 @@ pub fn run() {
             // Store the database in the platform-appropriate app-data directory.
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
-            let conn = Connection::open(dir.join("notes.db"))?;
+            let db_path = dir.join("notes.db");
+            // Carry over the notes of anyone upgrading from the Linux Notes era.
+            migrate_legacy_db(&dir, &db_path);
+            let conn = Connection::open(&db_path)?;
             db::init(&conn)?;
             db::seed_folders_if_empty(&conn)?;
             // Purge notes that have sat in the trash past the retention window.

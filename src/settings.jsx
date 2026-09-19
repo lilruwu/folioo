@@ -3,13 +3,15 @@
 import React from "react";
 import { Modal, Segmented, Slider, Field } from "./ui.jsx";
 
-const LS_KEY = "linux-notes-settings";
+const LS_KEY = "folioo-settings";
+// Key used before the app was renamed; read once so upgraders keep their theme.
+const LEGACY_LS_KEY = "linux-notes-settings";
 
 // useSettings — single source of truth for appearance prefs.
 export function useSettings(defaults) {
   const [values, setValues] = React.useState(() => {
     try {
-      const raw = localStorage.getItem(LS_KEY);
+      const raw = localStorage.getItem(LS_KEY) ?? localStorage.getItem(LEGACY_LS_KEY);
       return raw ? { ...defaults, ...JSON.parse(raw) } : defaults;
     } catch {
       return defaults;

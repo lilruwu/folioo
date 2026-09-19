@@ -63,7 +63,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Linux Notes ${{ github.ref_name }}"
+          releaseName: "Folioo ${{ github.ref_name }}"
           releaseBody: "Descarga el `.deb` (Debian/Ubuntu), `.rpm` (Fedora), `.AppImage` (ejecutable directo) o `.flatpak` de los Assets de abajo."
           releaseDraft: true
           prerelease: false
@@ -96,15 +96,15 @@ jobs:
         run: |
           mkdir -p /tmp/deb
           gh release download "${GITHUB_REF_NAME}" -p "*amd64.deb" --dir /tmp/deb
-          cp /tmp/deb/*.deb flatpak/linux-notes.deb
+          cp /tmp/deb/*.deb flatpak/folioo.deb
 
       - name: Build the Flatpak bundle
         run: |
-          flatpak-builder --user --force-clean --disable-cache --disable-rofiles-fuse --repo flatpak-repo flatpak-build flatpak/org.linuxnotes.app.yml
-          flatpak build-bundle flatpak-repo "linux-notes_${GITHUB_REF_NAME}.flatpak" org.linuxnotes.app \
+          flatpak-builder --user --force-clean --disable-cache --disable-rofiles-fuse --repo flatpak-repo flatpak-build flatpak/org.folioo.app.yml
+          flatpak build-bundle flatpak-repo "folioo_${GITHUB_REF_NAME}.flatpak" org.folioo.app \
             --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
 
       - name: Attach the .flatpak to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" "linux-notes_${GITHUB_REF_NAME}.flatpak" --clobber
+        run: gh release upload "${GITHUB_REF_NAME}" "folioo_${GITHUB_REF_NAME}.flatpak" --clobber

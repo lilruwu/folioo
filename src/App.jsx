@@ -42,7 +42,11 @@ export default function App() {
   const [folders, setFolders] = React.useState([]);
   const [selectedId, setSelectedId] = React.useState(null);
   const [selectedFolder, setSelectedFolder] = React.useState(() => {
-    try { return localStorage.getItem("linux-notes-folder") || "all"; } catch { return "all"; }
+    try {
+      // The "linux-notes-*" keys predate the rename; read them once so an
+      // upgrade doesn't reset the last opened tag / note.
+      return localStorage.getItem("folioo-folder") || localStorage.getItem("linux-notes-folder") || "all";
+    } catch { return "all"; }
   });
   const [searchQuery, setSearchQuery] = React.useState("");
   // Debounced copy used for filtering, so the list isn't re-filtered on every keystroke.
@@ -74,7 +78,7 @@ export default function App() {
         setNotes(rows);
         // Restore the last opened note if it still exists.
         let saved = null;
-        try { saved = localStorage.getItem("linux-notes-note"); } catch {}
+        try { saved = localStorage.getItem("folioo-note") || localStorage.getItem("linux-notes-note"); } catch {}
         const pick = rows.find((n) => n.id === saved) || rows[0];
         if (pick) setSelectedId(pick.id);
       })
@@ -99,10 +103,10 @@ export default function App() {
 
   // Persist the current note / folder so they're restored next launch.
   React.useEffect(() => {
-    try { localStorage.setItem("linux-notes-folder", selectedFolder); } catch {}
+    try { localStorage.setItem("folioo-folder", selectedFolder); } catch {}
   }, [selectedFolder]);
   React.useEffect(() => {
-    try { if (selectedId) localStorage.setItem("linux-notes-note", selectedId); } catch {}
+    try { if (selectedId) localStorage.setItem("folioo-note", selectedId); } catch {}
   }, [selectedId]);
 
   // ── Derived: filtered + sorted ──
@@ -325,7 +329,7 @@ export default function App() {
   const handleExport = React.useCallback(async () => {
     try {
       const path = await save({
-        defaultPath: "linux-notes-backup.json",
+        defaultPath: "folioo-backup.json",
         filters: [{ name: "JSON", extensions: ["json"] }],
       });
       if (!path) return;
