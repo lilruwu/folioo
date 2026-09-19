@@ -10,8 +10,15 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     watch: {
-      // Don't watch the Rust source tree.
-      ignored: ["**/src-tauri/**"],
+      // Don't watch the Rust source tree, nor the Flatpak build artifacts:
+      // flatpak-build/ mirrors parts of a root filesystem and contains symlink
+      // loops (var/run/udev/watch/...) that crash the watcher with ELOOP.
+      ignored: [
+        "**/src-tauri/**",
+        "**/flatpak-build/**",
+        "**/flatpak-repo/**",
+        "**/.flatpak-builder/**",
+      ],
     },
   },
   build: {
