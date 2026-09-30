@@ -30,7 +30,8 @@ the `notes` table.
 
 ### Requirement: Track When The Tag List Last Changed
 The system SHALL record a millisecond timestamp of the most recent change to the tag list —
-creation, deletion, or color change — so tag state can be compared against a remote copy.
+creation, deletion, or color change — so tag state can be compared against the copy in the
+sync folder.
 
 #### Scenario: Creating a tag
 - **WHEN** the user creates a new tag
