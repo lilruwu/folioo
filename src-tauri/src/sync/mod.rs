@@ -9,4 +9,5 @@
 // surface reads as dead code.
 #![allow(dead_code)]
 
+pub mod engine;
 pub mod library;

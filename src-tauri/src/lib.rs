@@ -108,7 +108,7 @@ pub fn now_ms() -> i64 {
 }
 
 /// A reasonably unique id derived from the current time in nanoseconds.
-fn generate_id() -> String {
+pub(crate) fn generate_id() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())

@@ -1,5 +1,7 @@
 // db.rs — SQLite schema, queries, and first-run seeding.
 
+use std::collections::HashMap;
+
 use rusqlite::{params, Connection, OptionalExtension, Result};
 
 use crate::{Folder, Note, NoteSummary};
@@ -84,6 +86,19 @@ pub fn init(conn: &Connection) -> Result<()> {
         "CREATE TABLE IF NOT EXISTS meta (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
+        )",
+        [],
+    )?;
+
+    // Folder sync: per note, the `updated_ms` both sides agreed on at the last
+    // successful sync, and the note file's size and mtime as last seen — so a
+    // pass can skip parsing files that haven't changed.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS sync_state (
+            id            TEXT PRIMARY KEY,
+            synced_ms     INTEGER NOT NULL,
+            file_size     INTEGER NOT NULL,
+            file_mtime_ms INTEGER NOT NULL
         )",
         [],
     )?;
@@ -255,7 +270,14 @@ pub fn list_all_notes(conn: &Connection) -> Result<Vec<Note>> {
 /// Insert-or-replace a whole note (used when importing a backup).
 pub fn upsert_note(conn: &Connection, note: &Note, now_ms: i64) -> Result<()> {
     let tx = conn.unchecked_transaction()?;
-    tx.execute(
+    write_note_row(&tx, note, now_ms)?;
+    tx.commit()
+}
+
+/// Insert-or-replace a note row stamped `updated_ms`, dropping any tombstone
+/// for its id: a note arriving by import or sync is a deliberate resurrection.
+fn write_note_row(conn: &Connection, note: &Note, updated_ms: i64) -> Result<()> {
+    conn.execute(
         "INSERT INTO notes (id, title, content, content_text, folder, favorite, created, updated, deleted_at, updated_ms)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
          ON CONFLICT(id) DO UPDATE SET
@@ -270,13 +292,11 @@ pub fn upsert_note(conn: &Connection, note: &Note, now_ms: i64) -> Result<()> {
             note.created,
             note.updated,
             note.deleted_at,
-            now_ms
+            updated_ms
         ],
     )?;
-    // Importing a note the user had purged is a deliberate resurrection: drop
-    // the tombstone so sync doesn't delete it again on the next pass.
-    tx.execute("DELETE FROM deletions WHERE id = ?1", params![note.id])?;
-    tx.commit()
+    conn.execute("DELETE FROM deletions WHERE id = ?1", params![note.id])?;
+    Ok(())
 }
 
 pub fn insert_note(conn: &Connection, note: &Note, now_ms: i64) -> Result<()> {
@@ -468,9 +488,6 @@ pub fn touch_folders(conn: &Connection, now_ms: i64) -> Result<()> {
 }
 
 /// When the tag list last changed, or 0 if it never has.
-// Written now so the timestamp is accurate from this release on; the sync
-// engine is what will read it.
-#[allow(dead_code)]
 pub fn folders_updated_ms(conn: &Connection) -> Result<i64> {
     let raw: Option<String> = conn
         .query_row(
@@ -531,6 +548,233 @@ pub fn first_folder_except(conn: &Connection, exclude: &str) -> Result<Option<St
         |r| r.get(0),
     )
     .optional()
+}
+
+// ── Folder sync ─────────────────────────────────────────────────────────────
+
+/// What was agreed with the library about one note at the last sync.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SyncState {
+    pub synced_ms: i64,
+    pub file_size: u64,
+    pub file_mtime_ms: i64,
+}
+
+pub fn meta_get(conn: &Connection, key: &str) -> Result<Option<String>> {
+    conn.query_row("SELECT value FROM meta WHERE key = ?1", params![key], |r| r.get(0))
+        .optional()
+}
+
+pub fn meta_set(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+pub fn meta_delete(conn: &Connection, key: &str) -> Result<()> {
+    conn.execute("DELETE FROM meta WHERE key = ?1", params![key])?;
+    Ok(())
+}
+
+const SYNC_FOLDER_KEY: &str = "sync_folder";
+const TAGS_SYNCED_KEY: &str = "tags_synced_ms";
+
+/// The library directory sync is pointed at, if any.
+#[allow(dead_code)] // called by the sync commands (folder-sync phase 4)
+pub fn sync_folder(conn: &Connection) -> Result<Option<String>> {
+    meta_get(conn, SYNC_FOLDER_KEY)
+}
+
+#[allow(dead_code)] // called by the sync commands (folder-sync phase 4)
+pub fn set_sync_folder(conn: &Connection, path: &str) -> Result<()> {
+    meta_set(conn, SYNC_FOLDER_KEY, path)
+}
+
+/// Forget the folder and everything agreed with it. Notes, tags and local
+/// tombstones stay: stopping sync never touches the user's data.
+#[allow(dead_code)] // called by the sync commands (folder-sync phase 4)
+pub fn clear_sync(conn: &Connection) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM sync_state", [])?;
+    meta_delete(&tx, SYNC_FOLDER_KEY)?;
+    meta_delete(&tx, TAGS_SYNCED_KEY)?;
+    tx.commit()
+}
+
+/// The tag-list timestamp both sides agreed on at the last sync; `None` until
+/// this database has synced tags with a library at least once.
+pub fn tags_synced_ms(conn: &Connection) -> Result<Option<i64>> {
+    Ok(meta_get(conn, TAGS_SYNCED_KEY)?.and_then(|v| v.parse().ok()))
+}
+
+pub fn set_tags_synced_ms(conn: &Connection, ms: i64) -> Result<()> {
+    meta_set(conn, TAGS_SYNCED_KEY, &ms.to_string())
+}
+
+pub fn sync_states(conn: &Connection) -> Result<HashMap<String, SyncState>> {
+    let mut stmt =
+        conn.prepare("SELECT id, synced_ms, file_size, file_mtime_ms FROM sync_state")?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            SyncState {
+                synced_ms: r.get(1)?,
+                file_size: r.get::<_, i64>(2)? as u64,
+                file_mtime_ms: r.get(3)?,
+            },
+        ))
+    })?;
+    rows.collect()
+}
+
+pub fn set_sync_state(conn: &Connection, id: &str, state: SyncState) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO sync_state (id, synced_ms, file_size, file_mtime_ms)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![id, state.synced_ms, state.file_size as i64, state.file_mtime_ms],
+    )?;
+    Ok(())
+}
+
+pub fn delete_sync_state(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute("DELETE FROM sync_state WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// Every note's `updated_ms`, active and trashed.
+pub fn note_versions(conn: &Connection) -> Result<HashMap<String, i64>> {
+    let mut stmt = conn.prepare("SELECT id, updated_ms FROM notes")?;
+    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect()
+}
+
+/// A note together with its `updated_ms`, read in one statement so the two
+/// always describe the same version.
+pub fn get_note_versioned(conn: &Connection, id: &str) -> Result<Option<(Note, i64)>> {
+    let sql = format!("SELECT {SELECT_COLS}, updated_ms FROM notes WHERE id = ?1");
+    conn.query_row(&sql, params![id], |r| Ok((row_to_note(r)?, r.get(8)?)))
+        .optional()
+}
+
+fn current_version(conn: &Connection, id: &str) -> Result<Option<i64>> {
+    conn.query_row(
+        "SELECT updated_ms FROM notes WHERE id = ?1",
+        params![id],
+        |r| r.get(0),
+    )
+    .optional()
+}
+
+/// Apply a note read from the library — but only if the local row is still
+/// the version sync looked at (`expected`, or absent for `None`).
+///
+/// Sync reads, decides and writes without holding the database for the whole
+/// pass, so the user can keep typing. If they edited this note in between,
+/// overwriting it would lose that edit; returning `false` leaves it for the
+/// next pass, which will see both sides changed and keep both.
+pub fn apply_synced_note(
+    conn: &Connection,
+    note: &Note,
+    updated_ms: i64,
+    expected: Option<i64>,
+) -> Result<bool> {
+    let tx = conn.unchecked_transaction()?;
+    if current_version(&tx, &note.id)? != expected {
+        return Ok(false);
+    }
+    write_note_row(&tx, note, updated_ms)?;
+    tx.commit()?;
+    Ok(true)
+}
+
+/// Purge a note because the library holds its tombstone — only if the local
+/// row is still version `expected`. Records the tombstone with the original
+/// deletion time, so it ages out on the same schedule everywhere.
+pub fn purge_synced_note(
+    conn: &Connection,
+    id: &str,
+    expected: i64,
+    deleted_ms: i64,
+) -> Result<bool> {
+    let tx = conn.unchecked_transaction()?;
+    if current_version(&tx, id)? != Some(expected) {
+        return Ok(false);
+    }
+    tx.execute(
+        "INSERT OR REPLACE INTO deletions (id, deleted_ms) VALUES (?1, ?2)",
+        params![id, deleted_ms],
+    )?;
+    tx.execute("DELETE FROM notes WHERE id = ?1", params![id])?;
+    tx.commit()?;
+    Ok(true)
+}
+
+pub fn tombstones(conn: &Connection) -> Result<HashMap<String, i64>> {
+    let mut stmt = conn.prepare("SELECT id, deleted_ms FROM deletions")?;
+    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect()
+}
+
+/// Remember a deletion learned from the library, unless the note exists here —
+/// a local note always outranks a bare tombstone until sync compares them.
+pub fn record_tombstone(conn: &Connection, id: &str, deleted_ms: i64) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO deletions (id, deleted_ms)
+         SELECT ?1, ?2 WHERE NOT EXISTS (SELECT 1 FROM notes WHERE id = ?1)",
+        params![id, deleted_ms],
+    )?;
+    Ok(())
+}
+
+/// Drop tombstones older than `cutoff_ms`, returning their ids so the matching
+/// files can be removed from the library too.
+pub fn prune_tombstones(conn: &Connection, cutoff_ms: i64) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("DELETE FROM deletions WHERE deleted_ms < ?1 RETURNING id")?;
+    let rows = stmt.query_map(params![cutoff_ms], |r| r.get(0))?;
+    rows.collect()
+}
+
+/// Replace the whole tag list with one read from the library, in its order —
+/// only if the local list is still the version sync compared (`expected`), so a
+/// tag created while the pass ran is never wiped.
+pub fn replace_folders(
+    conn: &Connection,
+    folders: &[Folder],
+    updated_ms: i64,
+    expected: i64,
+) -> Result<bool> {
+    let tx = conn.unchecked_transaction()?;
+    if folders_updated_ms(&tx)? != expected {
+        return Ok(false);
+    }
+    tx.execute("DELETE FROM folders", [])?;
+    for (i, f) in folders.iter().enumerate() {
+        tx.execute(
+            "INSERT OR IGNORE INTO folders (name, color, position) VALUES (?1, ?2, ?3)",
+            params![f.name, f.color, (i + 1) as i64],
+        )?;
+    }
+    touch_folders(&tx, updated_ms)?;
+    tx.commit()?;
+    Ok(true)
+}
+
+/// Create every tag a note refers to but the tag list lacks, so no note is
+/// left unreachable. Returns how many were created.
+pub fn create_missing_folders(conn: &Connection, color: &str, now_ms: i64) -> Result<usize> {
+    let missing: Vec<String> = conn
+        .prepare(
+            "SELECT DISTINCT folder FROM notes
+              WHERE folder NOT IN (SELECT name FROM folders) ORDER BY folder",
+        )?
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_>>()?;
+    for name in &missing {
+        insert_folder(conn, name, color, now_ms)?;
+    }
+    Ok(missing.len())
 }
 
 #[cfg(test)]
@@ -782,6 +1026,28 @@ mod tests {
 
         delete_folder(&conn, "Work", "Personal", 3_000).unwrap();
         assert_eq!(folders_updated_ms(&conn).unwrap(), 3_000);
+    }
+
+    #[test]
+    fn stopping_sync_forgets_the_folder_but_keeps_every_note_and_tag() {
+        let conn = fresh_db();
+        insert_folder(&conn, "Work", "#000", 1).unwrap();
+        insert_note(&conn, &note("n1", "2026-03-09"), 1_000).unwrap();
+        purge_note(&conn, "n1", 2_000).unwrap();
+        insert_note(&conn, &note("n2", "2026-03-09"), 3_000).unwrap();
+        set_sync_folder(&conn, "/home/u/Folioo").unwrap();
+        set_sync_state(&conn, "n2", SyncState { synced_ms: 3_000, file_size: 9, file_mtime_ms: 9 }).unwrap();
+        set_tags_synced_ms(&conn, 1).unwrap();
+
+        clear_sync(&conn).unwrap();
+
+        assert_eq!(sync_folder(&conn).unwrap(), None);
+        assert!(sync_states(&conn).unwrap().is_empty());
+        assert_eq!(tags_synced_ms(&conn).unwrap(), None);
+        assert!(get_note(&conn, "n2").unwrap().is_some());
+        assert_eq!(list_folders(&conn).unwrap().len(), 1);
+        // Local tombstones stay: they still describe what the user deleted.
+        assert_eq!(tombstone_of(&conn, "n1"), Some(2_000));
     }
 
     #[test]

@@ -35,20 +35,20 @@
 
 ## 3. Sync engine
 
-- [ ] 3.1 Add a per-note sync record (`synced_ms`, file size, file mtime) and its idempotent
+- [x] 3.1 Add a per-note sync record (`synced_ms`, file size, file mtime) and its idempotent
       migration; store the chosen folder path in `meta`
-- [ ] 3.2 Implement the classification pass over local ids, note files and tombstone files,
+- [x] 3.2 Implement the classification pass over local ids, note files and tombstone files,
       parsing only files whose size or mtime changed since the last pass
-- [ ] 3.3 Write / read notes, committing each one independently so an interrupted pass resumes
-- [ ] 3.4 Enforce "absence never deletes": a local note with no file is written, never removed
-- [ ] 3.5 Conflicts: later `updated_ms` stays; the other copy becomes a new note titled with the
+- [x] 3.3 Write / read notes, committing each one independently so an interrupted pass resumes
+- [x] 3.4 Enforce "absence never deletes": a local note with no file is written, never removed
+- [x] 3.5 Conflicts: later `updated_ms` stays; the other copy becomes a new note titled with the
       English `(conflicted copy)` marker, in the same tag, and is written to the library
-- [ ] 3.6 Tombstones: write a file for each local purge and remove the note file; purge locally
+- [x] 3.6 Tombstones: write a file for each local purge and remove the note file; purge locally
       for a newer tombstone file; let a newer local edit win over an older tombstone
-- [ ] 3.7 Tags: whole-list last-writer-wins via `tags.json` and `folders_updated_ms`; afterwards
+- [x] 3.7 Tags: whole-list last-writer-wins via `tags.json` and `folders_updated_ms`; afterwards
       create any tag a note references that the list lacks
-- [ ] 3.8 Prune tombstones (local and files) older than 90 days
-- [ ] 3.9 Tests for every branch: two-sided edit keeps two notes; unmounted (empty) folder
+- [x] 3.8 Prune tombstones (local and files) older than 90 days
+- [x] 3.9 Tests for every branch: two-sided edit keeps two notes; unmounted (empty) folder
       deletes and writes nothing; hand-deleted note file is rewritten; purge on A removes the
       note on B; edit after purge wins; trashed notes round-trip with `deletedAt`; a sync-tool
       conflict copy is ignored and left in place; tag deletion propagates; orphan tag is recreated; a second
