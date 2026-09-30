@@ -10,13 +10,14 @@ use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
 mod db;
+mod sync;
 
 /// Days a note stays in the trash before it is purged automatically.
 pub const TRASH_RETENTION_DAYS: i64 = 30;
 
 /// A single note. Field names match the shape the frontend expects.
 /// `deleted_at` is `None` for active notes and an ISO date for trashed ones.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Note {
     pub id: String,
     pub title: String,
@@ -47,7 +48,7 @@ pub struct NoteSummary {
 }
 
 /// A tag/folder a note can belong to.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Folder {
     pub name: String,
     pub color: String,

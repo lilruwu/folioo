@@ -19,18 +19,18 @@
 
 ## 2. Library format
 
-- [ ] 2.1 Create `src-tauri/src/sync/mod.rs` with a `library` submodule; define the note file,
+- [x] 2.1 Create `src-tauri/src/sync/mod.rs` with a `library` submodule; define the note file,
       tombstone file, `tags.json` and `library.json` formats (serde), versioned by `format: 1`
-- [ ] 2.2 Resolve the library directory from a chosen folder: `<chosen>/Folioo/`, or the chosen
+- [x] 2.2 Resolve the library directory from a chosen folder: `<chosen>/Folioo/`, or the chosen
       folder itself when it already contains `library.json`
-- [ ] 2.3 Initialise a library (marker, `notes/`, `deleted/`) — only ever called from the
+- [x] 2.3 Initialise a library (marker, `notes/`, `deleted/`) — only ever called from the
       "choose folder" command, never from a background sync
-- [ ] 2.4 Refuse a library whose `format` is newer than supported; report a previously synced
+- [x] 2.4 Refuse a library whose `format` is newer than supported; report a previously synced
       library whose marker is missing as unavailable
-- [ ] 2.5 Atomic writes: temp file in the same directory, then rename over the target
-- [ ] 2.6 List `notes/` and `deleted/` with size + mtime; recognise canonical `<id>.json` names
+- [x] 2.5 Atomic writes: temp file in the same directory, then rename over the target
+- [x] 2.6 List `notes/` and `deleted/` with size + mtime; recognise canonical `<id>.json` names
       and classify every other `.json` in `notes/` as a candidate sync-tool conflict file
-- [ ] 2.7 Tests against temp directories: layout resolution, init, newer-format refusal,
+- [x] 2.7 Tests against temp directories: layout resolution, init, newer-format refusal,
       missing-marker detection, atomic write leaves no partial file, name classification
 
 ## 3. Sync engine
