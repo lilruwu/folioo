@@ -27,7 +27,7 @@ Notes embed images as base64 inside their HTML `content`, so a single note can b
 
 - A user points Folioo at a folder once; notes, trash state and tags then converge across every
   machine pointed at the same (externally synced) folder.
-- No edit is ever silently lost — including edits the sync tool itself split into conflict files.
+- No edit is ever silently lost to a conflict between two Folioo machines.
 - Permanent deletions stick, and nothing is ever deleted *because a file is missing*.
 - No network, no account, no credential anywhere in Folioo.
 - Everything Folioo does today keeps working with no folder set or the folder unavailable.
@@ -123,14 +123,20 @@ The later `updated_ms` stays as the note; the other version is inserted under a 
 same tag, titled with an English `(conflicted copy)` marker, and written to the library as a new
 note. Losing a paragraph someone typed is a far worse failure than an extra note in the list.
 
-### Conflict files made by the sync tool
+### Files Folioo didn't write are ignored
 
-Syncthing, Dropbox and Nextcloud resolve their own conflicts by writing a sibling file —
-`<id>.sync-conflict-<date>-<device>.json`, `<id> (conflicted copy …).json`. Folioo only treats
-`notes/<id>.json` with a well-formed id as the canonical note file. Any other `.json` in `notes/`
-that parses as a Folioo note is imported as a conflicted copy (same rule as above) and then
-removed from the folder, so the tool's conflict copy becomes a visible note instead of a file
-nobody opens.
+Folioo only reads canonical `<id>.json` files, where the id is made of `[A-Za-z0-9_-]`. Anything
+else in the library — a sync tool's own conflict copy (`….sync-conflict-….json`,
+`… (conflicted copy).json`), a stray document, a hidden temporary — is ignored and left where
+it is. The external tool's behaviour is the user's concern, not Folioo's: the design only has
+to be correct for two Folioo instances sharing one folder.
+
+The same character rule keeps a crafted id such as `../x` from naming a path outside the
+library.
+
+*Alternative considered:* importing the tool's conflict copies as `(conflicted copy)` notes.
+Rejected as tool-specific behaviour Folioo shouldn't carry; the cost is that when a tool splits
+a file, the split-off copy stays in the folder rather than appearing in Folioo.
 
 ### Tags: the whole list, last writer wins
 
@@ -170,6 +176,10 @@ a real Flatpak build, not assumed.
   copies are kept; real timestamps apply from the first sync on.
 - **Absence-never-deletes means a note deleted by hand in the folder comes back.** → Intended.
   Deleting inside Folioo is the supported path; it writes a tombstone. The README says so.
+- **A sync tool's own conflict copy stays invisible.** When the external tool splits a note
+  file because two machines wrote it before it could reconcile them, Folioo ignores the copy.
+  → Folioo's own conflict handling catches most of these cases first; the copy remains on disk
+  for the user to recover by hand.
 - **Tag edits made on two machines between syncs lose the older one.** → Accepted for a much
   simpler model that can propagate deletions; notes are never left without their tag.
 - **The external tool is invisible to Folioo.** Folioo cannot tell whether the folder has

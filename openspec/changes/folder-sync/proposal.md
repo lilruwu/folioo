@@ -21,8 +21,8 @@ target works, and it keeps Folioo entirely offline.
   tool never picks up a half-written file.
 - **Conflict resolution** by last-writer-wins on the millisecond modification timestamp. When
   both sides changed a note since the last sync, the loser is **kept as a copy** — never
-  discarded. Conflict files created by the sync tools themselves (Syncthing's
-  `.sync-conflict-…`, Dropbox's "conflicted copy") are imported the same way.
+  discarded. Folioo does not try to interpret the external tool's own behaviour: any file in the
+  folder that isn't one of its own (a tool's conflict copy, a stray document) is ignored.
 - **Deletions propagate only through explicit tombstones.** A note file that is simply missing
   never deletes anything: an unmounted rclone folder or an empty drive must not look like "the
   user deleted everything". If the library marker itself is missing, sync stops and says so.
@@ -39,8 +39,7 @@ target works, and it keeps Folioo entirely offline.
 
 ### New Capabilities
 - `folder-sync`: choosing a sync folder, the library layout and file formats, the sync engine
-  (push/pull, conflict resolution, tombstones, tag sync, sync-tool conflict copies,
-  scheduling), and the safety rules that keep a missing or unmounted folder from deleting data.
+  (push/pull, conflict resolution, tombstones, tag sync, scheduling), and the safety rules that keep a missing or unmounted folder from deleting data.
 
 ### Modified Capabilities
 - `persistence`: notes gain a millisecond modification timestamp alongside the existing

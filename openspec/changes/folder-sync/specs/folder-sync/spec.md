@@ -73,19 +73,17 @@ NOT discard either version.
 - **WHEN** a sync finds that a note changed both locally and in the library since the last sync
 - **THEN** the later-modified version remains as the note and the other version is kept as a separate note marked `(conflicted copy)`
 
-### Requirement: Recover Conflict Files Created By Sync Tools
-The system SHALL treat only `notes/<id>.json`, where `<id>` is a well-formed note id, as a
-canonical note file. Any other `.json` file in `notes/` that parses as a Folioo note — such as a
-Syncthing `.sync-conflict-` file or a Dropbox "conflicted copy" — SHALL be imported as a
-conflicted copy under the same rule as other conflicts, and then removed from the library.
-Files that do not parse as a note SHALL be left untouched.
+### Requirement: Ignore Files Folioo Did Not Write
+The system SHALL treat only `notes/<id>.json` and `deleted/<id>.json`, where `<id>` consists of
+ASCII letters, digits, `-` and `_`, as library files. Every other file in the library — including
+conflict copies created by an external sync tool — SHALL be ignored and left untouched.
 
-#### Scenario: Syncthing produced a conflict file
-- **WHEN** the library contains `notes/n1a2b.sync-conflict-20261001-120000-ABCDEFG.json` holding a valid note
-- **THEN** its content appears as a new note marked `(conflicted copy)`, and the conflict file is removed from the library
+#### Scenario: A sync tool left a conflict copy
+- **WHEN** the library contains `notes/n1a2b.sync-conflict-20261001-120000-ABCDEFG.json`
+- **THEN** sync neither imports nor removes it, and the canonical `notes/n1a2b.json` is synced as usual
 
 #### Scenario: An unrelated file sits in the notes directory
-- **WHEN** `notes/` contains a `.json` file that does not parse as a Folioo note
+- **WHEN** `notes/` contains a file that is not a canonical note file
 - **THEN** it is ignored and left in place
 
 ### Requirement: Propagate Permanent Deletions Through Tombstones

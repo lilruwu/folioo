@@ -28,8 +28,8 @@
 - [x] 2.4 Refuse a library whose `format` is newer than supported; report a previously synced
       library whose marker is missing as unavailable
 - [x] 2.5 Atomic writes: temp file in the same directory, then rename over the target
-- [x] 2.6 List `notes/` and `deleted/` with size + mtime; recognise canonical `<id>.json` names
-      and classify every other `.json` in `notes/` as a candidate sync-tool conflict file
+- [x] 2.6 List `notes/` and `deleted/` with size + mtime; count only canonical `<id>.json`
+      names and ignore every other file
 - [x] 2.7 Tests against temp directories: layout resolution, init, newer-format refusal,
       missing-marker detection, atomic write leaves no partial file, name classification
 
@@ -43,17 +43,15 @@
 - [ ] 3.4 Enforce "absence never deletes": a local note with no file is written, never removed
 - [ ] 3.5 Conflicts: later `updated_ms` stays; the other copy becomes a new note titled with the
       English `(conflicted copy)` marker, in the same tag, and is written to the library
-- [ ] 3.6 Import sync-tool conflict files that parse as notes as conflicted copies, then remove
-      them; leave files that don't parse untouched
-- [ ] 3.7 Tombstones: write a file for each local purge and remove the note file; purge locally
+- [ ] 3.6 Tombstones: write a file for each local purge and remove the note file; purge locally
       for a newer tombstone file; let a newer local edit win over an older tombstone
-- [ ] 3.8 Tags: whole-list last-writer-wins via `tags.json` and `folders_updated_ms`; afterwards
+- [ ] 3.7 Tags: whole-list last-writer-wins via `tags.json` and `folders_updated_ms`; afterwards
       create any tag a note references that the list lacks
-- [ ] 3.9 Prune tombstones (local and files) older than 90 days
-- [ ] 3.10 Tests for every branch: two-sided edit keeps two notes; unmounted (empty) folder
+- [ ] 3.8 Prune tombstones (local and files) older than 90 days
+- [ ] 3.9 Tests for every branch: two-sided edit keeps two notes; unmounted (empty) folder
       deletes and writes nothing; hand-deleted note file is rewritten; purge on A removes the
-      note on B; edit after purge wins; trashed notes round-trip with `deletedAt`; sync-tool
-      conflict file becomes a note; tag deletion propagates; orphan tag is recreated; a second
+      note on B; edit after purge wins; trashed notes round-trip with `deletedAt`; a sync-tool
+      conflict copy is ignored and left in place; tag deletion propagates; orphan tag is recreated; a second
       pass over an unchanged library parses no files
 
 ## 4. Commands, scheduling and events

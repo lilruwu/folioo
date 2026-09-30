@@ -112,12 +112,12 @@ pub struct TagsFile {
 /// Whether `id` can name a canonical note or tombstone file.
 ///
 /// Deliberately permissive about the *shape* of an id — any id the database
-/// might hold must pass, or its file would be mistaken for a sync-tool conflict
-/// copy on every pass — and strict about characters: no dots, spaces, slashes
-/// or parentheses. That is exactly what separates `n1a2.json` from
-/// Syncthing's `n1a2.sync-conflict-….json` and Dropbox's
-/// `n1a2 (conflicted copy).json`, and it keeps a crafted id such as `../x`
-/// from ever becoming a path outside the library.
+/// might hold must pass, or its file would be ignored by every scan and the
+/// note would never sync — and strict about characters: no dots, spaces,
+/// slashes or parentheses. That keeps a crafted id such as `../x` from ever
+/// becoming a path outside the library, and means any other file that lands in
+/// the folder (a sync tool's conflict copy, a stray document) is simply not a
+/// note.
 pub fn is_valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 128
@@ -266,9 +266,6 @@ pub struct Scan {
     pub notes: BTreeMap<String, FileStamp>,
     /// Canonical `deleted/<id>.json` files, by id.
     pub tombstones: BTreeMap<String, FileStamp>,
-    /// Every other `.json` in `notes/` — most likely a conflict copy a sync
-    /// tool made. Whether it really is a note is for the engine to find out.
-    pub conflict_candidates: Vec<PathBuf>,
 }
 
 /// Split a directory entry into its id, if it is a canonical `<id>.json` file.
@@ -301,49 +298,14 @@ impl Library {
         Ok(self.root.join(DELETED_DIR).join(format!("{id}.json")))
     }
 
-    /// List the note and tombstone files. Hidden files (our own temporaries,
-    /// and those of most sync tools) and anything not ending in `.json` are
-    /// ignored outright.
+    /// List the note and tombstone files. Only canonical `<id>.json` files
+    /// count; everything else — our own hidden temporaries, a sync tool's
+    /// conflict copies, anything a user drops in — is ignored and left alone.
     pub fn scan(&self) -> Result<Scan> {
-        let mut scan = Scan::default();
-
-        for entry in fs::read_dir(self.root.join(NOTES_DIR))? {
-            let entry = entry?;
-            let meta = entry.metadata()?;
-            if !meta.is_file() {
-                continue;
-            }
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if name.starts_with('.') || !name.ends_with(".json") {
-                continue;
-            }
-            match canonical_id(&name) {
-                Some(id) => {
-                    scan.notes.insert(id.to_string(), FileStamp::of(&meta));
-                }
-                None => scan.conflict_candidates.push(entry.path()),
-            }
-        }
-
-        for entry in fs::read_dir(self.root.join(DELETED_DIR))? {
-            let entry = entry?;
-            let meta = entry.metadata()?;
-            if !meta.is_file() {
-                continue;
-            }
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if name.starts_with('.') {
-                continue;
-            }
-            // A sync tool's conflict copy of a tombstone carries nothing new:
-            // tombstones are written once. Only canonical ones count.
-            if let Some(id) = canonical_id(&name) {
-                scan.tombstones.insert(id.to_string(), FileStamp::of(&meta));
-            }
-        }
-
-        scan.conflict_candidates.sort();
-        Ok(scan)
+        Ok(Scan {
+            notes: canonical_files(&self.root.join(NOTES_DIR))?,
+            tombstones: canonical_files(&self.root.join(DELETED_DIR))?,
+        })
     }
 
     // ── Notes ───────────────────────────────────────────────────────────────
@@ -359,26 +321,8 @@ impl Library {
         read_json(&self.note_path(id)?)
     }
 
-    /// Parse any file as a note — used on conflict candidates, whose names
-    /// aren't canonical. `Corrupt` means "not a note": leave it alone.
-    pub fn read_note_at(&self, path: &Path) -> Result<NoteFile> {
-        read_json(path)
-    }
-
     pub fn remove_note(&self, id: &str) -> Result<()> {
         remove_if_present(&self.note_path(id)?)
-    }
-
-    /// Remove a conflict candidate once its content has been imported. Refuses
-    /// anything outside `notes/`.
-    pub fn remove_candidate(&self, path: &Path) -> Result<()> {
-        if path.parent() != Some(self.root.join(NOTES_DIR).as_path()) {
-            return Err(LibraryError::Corrupt(format!(
-                "{} is not in the notes directory",
-                path.display()
-            )));
-        }
-        remove_if_present(path)
     }
 
     // ── Tombstones ──────────────────────────────────────────────────────────
@@ -409,6 +353,23 @@ impl Library {
     pub fn write_tags(&self, tags: &TagsFile) -> Result<()> {
         write_json(&self.root.join(TAGS_FILE), tags)
     }
+}
+
+/// The canonical `<id>.json` files directly inside `dir`, with their stamps.
+fn canonical_files(dir: &Path) -> Result<BTreeMap<String, FileStamp>> {
+    let mut found = BTreeMap::new();
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let meta = entry.metadata()?;
+        if !meta.is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if let Some(id) = canonical_id(&name) {
+            found.insert(id.to_string(), FileStamp::of(&meta));
+        }
+    }
+    Ok(found)
 }
 
 fn remove_if_present(path: &Path) -> Result<()> {
@@ -603,7 +564,7 @@ mod tests {
     }
 
     #[test]
-    fn scan_separates_canonical_files_from_sync_tool_copies() {
+    fn scan_counts_only_canonical_files_and_leaves_the_rest_alone() {
         let t = TempDir::new();
         let lib = init_library(&t.0).unwrap();
         lib.write_note(&note("n1")).unwrap();
@@ -623,9 +584,8 @@ mod tests {
 
         assert_eq!(scan.notes.keys().collect::<Vec<_>>(), ["n1", "n2"]);
         assert_eq!(scan.tombstones.keys().collect::<Vec<_>>(), ["n3"]);
-        let mut expected = vec![dropbox, syncthing];
-        expected.sort();
-        assert_eq!(scan.conflict_candidates, expected);
+        // Ignored, not touched: a scan never deletes what it doesn't own.
+        assert!(syncthing.exists() && dropbox.exists());
     }
 
     #[test]
@@ -658,27 +618,7 @@ mod tests {
         assert!(raw.contains("\"deletedAt\"") && raw.contains("\"updatedMs\""), "{raw}");
     }
 
-    #[test]
-    fn a_candidate_that_is_not_a_note_reads_as_corrupt_and_stays() {
-        let t = TempDir::new();
-        let lib = init_library(&t.0).unwrap();
-        let stray = t.0.join(NOTES_DIR).join("notes (conflicted copy).json");
-        fs::write(&stray, r#"{"something": "else"}"#).unwrap();
 
-        assert!(matches!(lib.read_note_at(&stray), Err(LibraryError::Corrupt(_))));
-        assert!(stray.exists());
-    }
-
-    #[test]
-    fn candidates_can_only_be_removed_from_the_notes_directory() {
-        let t = TempDir::new();
-        let lib = init_library(&t.0).unwrap();
-        let outside = t.0.join("tags.json");
-        fs::write(&outside, "{}").unwrap();
-
-        assert!(lib.remove_candidate(&outside).is_err());
-        assert!(outside.exists());
-    }
 
     #[test]
     fn tombstones_and_tags_round_trip() {
