@@ -580,6 +580,7 @@ pub fn meta_delete(conn: &Connection, key: &str) -> Result<()> {
 
 const SYNC_FOLDER_KEY: &str = "sync_folder";
 const TAGS_SYNCED_KEY: &str = "tags_synced_ms";
+const LAST_SYNC_KEY: &str = "sync_last_ms";
 
 /// The library directory sync is pointed at, if any.
 #[allow(dead_code)] // called by the sync commands (folder-sync phase 4)
@@ -600,6 +601,7 @@ pub fn clear_sync(conn: &Connection) -> Result<()> {
     tx.execute("DELETE FROM sync_state", [])?;
     meta_delete(&tx, SYNC_FOLDER_KEY)?;
     meta_delete(&tx, TAGS_SYNCED_KEY)?;
+    meta_delete(&tx, LAST_SYNC_KEY)?;
     tx.commit()
 }
 
@@ -611,6 +613,30 @@ pub fn tags_synced_ms(conn: &Connection) -> Result<Option<i64>> {
 
 pub fn set_tags_synced_ms(conn: &Connection, ms: i64) -> Result<()> {
     meta_set(conn, TAGS_SYNCED_KEY, &ms.to_string())
+}
+
+/// When the last sync pass succeeded, so Settings can say so after a restart.
+pub fn last_sync_ms(conn: &Connection) -> Result<Option<i64>> {
+    Ok(meta_get(conn, LAST_SYNC_KEY)?.and_then(|v| v.parse().ok()))
+}
+
+pub fn set_last_sync_ms(conn: &Connection, ms: i64) -> Result<()> {
+    meta_set(conn, LAST_SYNC_KEY, &ms.to_string())
+}
+
+/// Ids with something not yet written to the library: notes changed (or never
+/// written) since the last sync, and notes purged here whose deletion hasn't
+/// been propagated yet — their sync record outlives the row until it has.
+pub fn pending_ids(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT n.id FROM notes n LEFT JOIN sync_state s ON s.id = n.id
+          WHERE s.id IS NULL OR s.synced_ms <> n.updated_ms
+         UNION
+         SELECT d.id FROM deletions d JOIN sync_state s ON s.id = d.id
+         ORDER BY 1",
+    )?;
+    let rows = stmt.query_map([], |r| r.get(0))?;
+    rows.collect()
 }
 
 pub fn sync_states(conn: &Connection) -> Result<HashMap<String, SyncState>> {

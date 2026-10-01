@@ -148,14 +148,28 @@ The cost: if two machines change tags between syncs, the older machine's tag edi
 note can be stranded by it, though: after every pass, any tag referenced by a note but absent
 from the list is recreated.
 
-### Scheduling
+### Scheduling: write on save, read on a schedule
 
-One sync at a time, guarded by a flag. A pass runs on startup when a folder is set, when the user
-presses "Sync now", a few seconds after local edits settle (autosave fires every few hundred
-milliseconds while typing; the debounce keeps sync from chasing keystrokes), and every 5 minutes
-while the app is open — the only way to notice changes the external tool delivered from other
-machines without adding a file-watcher dependency. Passes run off the UI thread; when one
-finishes, a Tauri event tells the frontend to reload its lists.
+Sync has two halves with different costs and different urgency.
+
+**Writing** local changes is cheap and should be prompt, the way Apple Notes pushes an edit to
+iCloud within seconds. About 2 seconds after the user stops editing, Folioo writes just the notes
+that changed since they were last written (plus tombstones and the tag list), each through the
+same per-note decision as a full pass, so a conflict is still caught. It doesn't scan the folder.
+The 2-second wait exists because autosave fires every few hundred milliseconds while typing, and
+rewriting a note file — megabytes with images — on every one of them would make the external tool
+re-upload it continuously.
+
+**Closing the app** writes whatever is still pending, always. That is milliseconds of work, not a
+full pass, so it never needs to be optional; it closes the gap of "typed, then closed the laptop
+before the 2 seconds passed".
+
+**Reading** what other machines wrote needs a full pass, because a folder cannot announce
+changes. A full pass runs on startup, when the user presses "Sync now", and every 5 minutes while
+the app is open.
+
+Everything runs on one background worker, so only one pass or push is ever in flight. When one
+changes local data, a Tauri event tells the frontend to reload its lists.
 
 ### Choosing the folder, and the Flatpak sandbox
 
@@ -182,6 +196,9 @@ a real Flatpak build, not assumed.
   for the user to recover by hand.
 - **Tag edits made on two machines between syncs lose the older one.** → Accepted for a much
   simpler model that can propagate deletions; notes are never left without their tag.
+- **Changes from other machines arrive with up to a 5-minute delay** (plus the external tool's
+  own latency), unlike a push-notified service such as iCloud. → Startup always reads, and "Sync
+  now" is there for the impatient; a file-watcher is a listed follow-up.
 - **The external tool is invisible to Folioo.** Folioo cannot tell whether the folder has
   finished syncing from another machine. → Last-writer-wins plus conflict copies make an early
   or late pass safe; the 5-minute interval picks up whatever arrives later.

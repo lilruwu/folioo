@@ -56,15 +56,17 @@
 
 ## 4. Commands, scheduling and events
 
-- [ ] 4.1 Add `sync_status`, `sync_set_folder`, `sync_stop` and `sync_now` commands and register
+- [x] 4.1 Add `sync_status`, `sync_set_folder`, `sync_stop` and `sync_now` commands and register
       them; `sync_set_folder` initialises or adopts the library, then runs a first pass
-- [ ] 4.2 Hold sync state (in progress, last success, last error, folder availability) in
+- [x] 4.2 Hold sync state (in progress, last success, last error, folder availability) in
       `AppState` behind a flag so only one pass is ever in flight
-- [ ] 4.3 Run a pass on startup when a folder is set, off the UI thread
-- [ ] 4.4 Debounce a pass after local edits settle, tuned not to chase autosave keystrokes
-- [ ] 4.5 Run a pass every 5 minutes while the app is open
-- [ ] 4.6 Emit a Tauri event when a pass finishes so the frontend reloads notes, trash and tags
-- [ ] 4.7 Verify the editor stays responsive during a pass over an image-heavy library
+- [x] 4.3 Run a pass on startup when a folder is set, off the UI thread
+- [x] 4.4 About 2 s after local edits settle, write only the locally changed notes, tombstones
+      and tag list — no library scan — through the same per-note decision as a full pass
+- [x] 4.5 Run a full pass every 5 minutes while the app is open
+- [x] 4.6 Write anything still pending when the app closes, always (not an option)
+- [x] 4.7 Emit a Tauri event when a pass finishes so the frontend reloads notes, trash and tags
+- [x] 4.8 Verify the editor stays responsive during a pass over an image-heavy library
 
 ## 5. Frontend
 
@@ -105,4 +107,5 @@
 - Direct cloud provider integration (Google Drive, Dropbox, OneDrive, iCloud).
 - Encryption of the library.
 - Extracting embedded base64 images into separate files.
-- A file-watcher on the library instead of the 5-minute interval.
+- A file-watcher on the library instead of the 5-minute interval, to receive changes from other
+  machines sooner.

@@ -123,14 +123,25 @@ created, so no note is left pointing at a tag that does not exist.
 - **THEN** the tag is created so the note remains reachable
 
 ### Requirement: Schedule Syncs Without Interrupting Editing
-The system SHALL run a sync when the app starts with a sync folder set, when the user requests
-one, a few seconds after local edits settle, and every 5 minutes while the app is open. A sync
-SHALL run in the background without blocking the UI, only one sync SHALL be in flight at a time,
-and the note, trash and tag lists SHALL refresh when a sync finishes.
+The system SHALL write locally changed notes, tombstones and the tag list to the library about
+2 seconds after the user stops editing, without scanning the rest of the library, and SHALL write
+any still-pending change when the app closes. It SHALL run a full sync — reading changes from
+other machines — when the app starts with a sync folder set, when the user requests one, and
+every 5 minutes while the app is open. All of it SHALL run in the background without blocking
+the UI, only one sync SHALL be in flight at a time, and the note, trash and tag lists SHALL
+refresh when a sync changes local data.
 
 #### Scenario: Typing while a sync runs
 - **WHEN** a background sync is in progress
 - **THEN** the editor stays responsive and autosave continues to work
+
+#### Scenario: An edit reaches the folder shortly after typing stops
+- **WHEN** the user edits a note and stops typing
+- **THEN** that note's file in the library is updated within a few seconds, and no other note file is rewritten
+
+#### Scenario: Closing the app right after typing
+- **WHEN** the user closes Folioo less than 2 seconds after editing a note
+- **THEN** the edit is written to the library before the app exits
 
 #### Scenario: Changes arrive from another machine while the app is open
 - **WHEN** the external sync tool delivers an edited note file while Folioo is running

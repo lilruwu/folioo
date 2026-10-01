@@ -137,24 +137,67 @@ pub fn run(db: &Mutex<Connection>, library_dir: &Path, now_ms: i64) -> Result<Sy
             file: scan.notes.get(id).copied(),
             tombstone_file: scan.tombstones.contains_key(id),
         };
-        match pass.sync_note(&input) {
-            Ok(()) => {}
-            // The folder vanished mid-pass, or the database is gone: stop
-            // rather than keep failing note by note.
-            Err(e @ SyncError::Library(LibraryError::Unavailable)) | Err(e @ SyncError::Poisoned) => {
-                return Err(e)
+        pass.sync_one(&input)?;
+    }
+
+    pass.finish_tags()?;
+    Ok(pass.report)
+}
+
+/// Write what changed here since the last sync — and nothing else.
+///
+/// Runs a couple of seconds after the user stops editing, and when the app
+/// closes. It looks only at the pending notes' own files instead of scanning
+/// the library, but each goes through the same decision as in a full pass, so
+/// a note that also changed elsewhere still ends in a merge, never an
+/// overwrite. Reading what other machines wrote is left to full passes.
+pub fn push_pending(
+    db: &Mutex<Connection>,
+    library_dir: &Path,
+    now_ms: i64,
+) -> Result<SyncReport, SyncError> {
+    let lib = library::open_library(library_dir)?;
+    let mut pass = Pass {
+        db,
+        lib,
+        now: now_ms,
+        report: SyncReport::default(),
+    };
+
+    let (ids, versions, local_tombstones, states) = pass.with_db(|c| {
+        Ok((
+            db::pending_ids(c)?,
+            db::note_versions(c)?,
+            db::tombstones(c)?,
+            db::sync_states(c)?,
+        ))
+    })?;
+
+    for id in &ids {
+        let looked_up = pass
+            .lib
+            .stat_note(id)
+            .and_then(|file| Ok((file, pass.lib.has_tombstone(id)?)));
+        let (file, tombstone_file) = match looked_up {
+            Ok(found) => found,
+            Err(LibraryError::Unavailable) => return Err(LibraryError::Unavailable.into()),
+            Err(e) => {
+                pass.report.errors.push(format!("{id}: {e}"));
+                continue;
             }
-            Err(e) => pass.report.errors.push(format!("{id}: {e}")),
-        }
+        };
+        let input = Input {
+            id,
+            local_ms: versions.get(id).copied(),
+            local_deleted_ms: local_tombstones.get(id).copied(),
+            state: states.get(id).copied(),
+            file,
+            tombstone_file,
+        };
+        pass.sync_one(&input)?;
     }
 
-    if let Err(e) = pass.sync_tags() {
-        match e {
-            SyncError::Poisoned => return Err(e),
-            e => pass.report.errors.push(format!("tags: {e}")),
-        }
-    }
-
+    pass.finish_tags()?;
     Ok(pass.report)
 }
 
@@ -333,6 +376,33 @@ impl Pass<'_> {
             }
         }
         Ok(())
+    }
+
+    /// Sync one id, recording a per-note failure and carrying on. Only a folder
+    /// that vanished mid-pass, or a database that's gone, stops the pass —
+    /// rather than failing note by note.
+    fn sync_one(&mut self, input: &Input) -> Result<(), SyncError> {
+        match self.sync_note(input) {
+            Ok(()) => Ok(()),
+            Err(e @ SyncError::Library(LibraryError::Unavailable)) | Err(e @ SyncError::Poisoned) => {
+                Err(e)
+            }
+            Err(e) => {
+                self.report.errors.push(format!("{}: {e}", input.id));
+                Ok(())
+            }
+        }
+    }
+
+    fn finish_tags(&mut self) -> Result<(), SyncError> {
+        match self.sync_tags() {
+            Ok(()) => Ok(()),
+            Err(e @ SyncError::Poisoned) => Err(e),
+            Err(e) => {
+                self.report.errors.push(format!("tags: {e}"));
+                Ok(())
+            }
+        }
     }
 
     fn read_remote(&mut self, input: &Input) -> Result<(Remote, bool), SyncError> {
@@ -1100,6 +1170,108 @@ mod tests {
             assert_eq!(report.written, 0);
             assert!(!report.changed_locally());
         }
+    }
+
+    // ── Write on save ───────────────────────────────────────────────────────
+
+    #[test]
+    fn a_push_writes_only_the_changed_note() {
+        let lib = library();
+        let a = Machine::new(&["Personal"]);
+        for i in 0..5 {
+            a.create(&format!("n{i}"), &format!("Note {i}"), "Personal", 10);
+        }
+        a.sync(&lib, 100);
+        let untouched = fs::metadata(note_file(&lib, "n0")).unwrap().modified().unwrap();
+
+        a.edit("n3", "Edited", 200);
+        let report = push_pending(&a.0, &lib.0, 300).unwrap();
+
+        assert_eq!(report.written, 1, "{report:?}");
+        assert_eq!(report.files_parsed, 0, "a push reads no other files");
+        let raw = fs::read_to_string(note_file(&lib, "n3")).unwrap();
+        assert!(raw.contains("Edited"));
+        assert_eq!(fs::metadata(note_file(&lib, "n0")).unwrap().modified().unwrap(), untouched);
+    }
+
+    #[test]
+    fn a_push_still_merges_a_note_that_changed_elsewhere() {
+        let lib = library();
+        let (a, b) = (Machine::new(&["Personal"]), Machine::new(&["Personal"]));
+        a.create("n1", "Shared", "Personal", 10);
+        a.sync(&lib, 100);
+        b.sync(&lib, 200);
+
+        a.edit("n1", "A's edit", 300);
+        push_pending(&a.0, &lib.0, 350).unwrap();
+        b.edit("n1", "B's edit", 400);
+        let report = push_pending(&b.0, &lib.0, 450).unwrap();
+
+        assert_eq!(report.conflicts, 1, "an overwrite would have lost A's edit");
+        assert_eq!(b.titles(), ["A's edit (conflicted copy)", "B's edit"]);
+    }
+
+    #[test]
+    fn a_push_propagates_a_purge() {
+        let lib = library();
+        let a = Machine::new(&["Personal"]);
+        a.create("n1", "Doomed", "Personal", 10);
+        a.sync(&lib, 100);
+
+        db::purge_note(&a.conn(), "n1", 200).unwrap();
+        push_pending(&a.0, &lib.0, 300).unwrap();
+
+        assert!(!note_file(&lib, "n1").exists());
+        assert!(tombstone_file(&lib, "n1").exists());
+        assert!(db::pending_ids(&a.conn()).unwrap().is_empty(), "nothing left to push");
+    }
+
+    #[test]
+    fn the_database_is_never_held_for_a_whole_pass() {
+        // A library of large notes, read by a second machine. If the pass held
+        // the database throughout, the user's next autosave would wait for all
+        // of it; per-note locking keeps each wait to roughly one note's worth.
+        let lib = library();
+        let a = Machine::new(&["Personal"]);
+        let image = "A".repeat(1_500_000);
+        for i in 0..25 {
+            let id = format!("n{i}");
+            a.create(&id, &format!("Photo {i}"), "Personal", 10);
+            db::update_note(
+                &a.conn(),
+                &id,
+                &format!("Photo {i}"),
+                &format!("<img src=\"data:image/png;base64,{image}\">"),
+                "2026-10-01",
+                20,
+            )
+            .unwrap();
+        }
+        a.sync(&lib, 100);
+
+        let b = std::sync::Arc::new(Machine::new(&["Personal"]));
+        let runner = std::sync::Arc::clone(&b);
+        let dir = lib.0.clone();
+        let pass = std::thread::spawn(move || {
+            let started = std::time::Instant::now();
+            run(&runner.0, &dir, 200).unwrap();
+            started.elapsed()
+        });
+
+        let mut longest_wait = std::time::Duration::ZERO;
+        while !pass.is_finished() {
+            let asked = std::time::Instant::now();
+            drop(b.0.lock().unwrap()); // what an autosave does first
+            longest_wait = longest_wait.max(asked.elapsed());
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let whole_pass = pass.join().unwrap();
+
+        assert_eq!(b.titles().len(), 25);
+        assert!(
+            longest_wait * 4 < whole_pass,
+            "an autosave waited {longest_wait:?} during a {whole_pass:?} pass"
+        );
     }
 
     // ── Policy table ────────────────────────────────────────────────────────

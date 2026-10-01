@@ -280,10 +280,6 @@ pub struct Library {
 }
 
 impl Library {
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
-
     fn note_path(&self, id: &str) -> Result<PathBuf> {
         if !is_valid_id(id) {
             return Err(LibraryError::InvalidId(id.to_string()));
@@ -306,6 +302,21 @@ impl Library {
             notes: canonical_files(&self.root.join(NOTES_DIR))?,
             tombstones: canonical_files(&self.root.join(DELETED_DIR))?,
         })
+    }
+
+    /// The stamp of one note file, without listing the directory — what a push
+    /// of a few changed notes needs instead of a full scan.
+    pub fn stat_note(&self, id: &str) -> Result<Option<FileStamp>> {
+        match fs::metadata(self.note_path(id)?) {
+            Ok(meta) if meta.is_file() => Ok(Some(FileStamp::of(&meta))),
+            Ok(_) => Ok(None),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub fn has_tombstone(&self, id: &str) -> Result<bool> {
+        Ok(self.tombstone_path(id)?.is_file())
     }
 
     // ── Notes ───────────────────────────────────────────────────────────────
