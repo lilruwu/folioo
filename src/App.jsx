@@ -5,6 +5,7 @@ import { useSettings, SettingsModal } from "./settings.jsx";
 import { ConfirmModal } from "./ui.jsx";
 import { applyThemedIcon, applyWindowTheme } from "./appicon.js";
 import { save, open } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import * as api from "./api.js";
 
 export default function App() {
@@ -65,6 +66,12 @@ export default function App() {
   // Generic confirmation dialog: { title, message, danger, confirmLabel, onConfirm } | null
   const [confirm, setConfirm] = React.useState(null);
   const [importMsg, setImportMsg] = React.useState("");
+
+  // ── Folder sync ──
+  const [syncStatus, setSyncStatus] = React.useState(null);
+  const [syncMsg, setSyncMsg] = React.useState("");
+  // Bumped when sync replaced the content of the note open in the editor.
+  const [editorRevision, setEditorRevision] = React.useState(0);
 
   const trashMode = selectedFolder === "trash";
 
@@ -151,6 +158,102 @@ export default function App() {
   });
 
   // ── Notes CRUD ──
+  // ── Folder sync: reacting to what other machines wrote ──
+  // Sync events arrive outside React's render cycle, so the current selection
+  // is read through refs rather than captured once.
+  const selectedIdRef = React.useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  const selectedNoteRef = React.useRef(selectedNote);
+  selectedNoteRef.current = selectedNote;
+
+  const reloadFromSync = React.useCallback(async () => {
+    try {
+      const [n, t, f] = await Promise.all([api.listNotes(), api.listTrash(), api.listFolders()]);
+      setNotes(n);
+      setTrash(t);
+      setFolders(f);
+      // The open note may have changed underneath the editor. The editor only
+      // reloads its content when told to, and would otherwise autosave the old
+      // version back over the one that just arrived.
+      const id = selectedIdRef.current;
+      const shown = selectedNoteRef.current;
+      if (!id || !shown || shown.id !== id) return;
+      const fresh = await api.getNote(id).catch(() => null);
+      if (!fresh) return; // purged by sync: the list reload moves the selection
+      const contentChanged = fresh.title !== shown.title || fresh.content !== shown.content;
+      if (contentChanged || fresh.folder !== shown.folder || fresh.favorite !== shown.favorite || fresh.deletedAt !== shown.deletedAt) {
+        setSelectedNote(fresh);
+      }
+      if (contentChanged) setEditorRevision((r) => r + 1);
+    } catch (e) {
+      console.error("Reload after sync failed:", e);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    api.syncStatus().then(setSyncStatus).catch((e) => console.error("Sync status failed:", e));
+    // listen() resolves asynchronously; if the effect is torn down first
+    // (React strict mode mounts twice), unsubscribe as soon as it resolves.
+    let disposed = false;
+    const subscriptions = [
+      listen("sync-status", (e) => setSyncStatus(e.payload)),
+      listen("sync-changed", () => reloadFromSync()),
+    ];
+    return () => {
+      disposed = true;
+      subscriptions.forEach((p) => p.then((unlisten) => disposed && unlisten()));
+    };
+  }, [reloadFromSync]);
+
+  // Sync replaced the open note while it had edits not yet autosaved: keep
+  // those edits as a separate note before the editor loads the new version.
+  const handleKeepLocalCopy = React.useCallback(async ({ title, content, folder }) => {
+    try {
+      const created = await api.createNote(folder);
+      await api.updateNote(created.id, `${title || "Untitled"} (conflicted copy)`, content);
+      setNotes(await api.listNotes());
+    } catch (e) {
+      console.error("Keeping the unsaved copy failed:", e);
+    }
+  }, []);
+
+  const handleChooseSyncFolder = React.useCallback(async () => {
+    setSyncMsg("");
+    try {
+      const selected = await open({ directory: true, multiple: false });
+      if (!selected) return;
+      const path = Array.isArray(selected) ? selected[0] : selected;
+      setSyncStatus(await api.syncSetFolder(path));
+    } catch (e) {
+      console.error("Choosing the sync folder failed:", e);
+      setSyncMsg(typeof e === "string" ? e : "Could not use that folder.");
+    }
+  }, []);
+
+  const handleSyncNow = React.useCallback(() => {
+    setSyncMsg("");
+    api.syncNow().catch((e) => console.error("Sync now failed:", e));
+  }, []);
+
+  const askStopSync = React.useCallback(() => {
+    setConfirm({
+      title: "Stop syncing",
+      confirmLabel: "Stop syncing",
+      message:
+        "Folioo will stop syncing with this folder. Your notes stay on this computer, and the " +
+        "folder keeps its copy — nothing is deleted.",
+      onConfirm: async () => {
+        try {
+          setSyncStatus(await api.syncStop());
+          setSyncMsg("");
+        } catch (e) {
+          console.error("Stopping sync failed:", e);
+          setSyncMsg("Could not stop syncing.");
+        }
+      },
+    });
+  }, []);
+
   const handleCreate = React.useCallback(async () => {
     const fallback = folders[0]?.name || "Personal";
     const folder = ["all", "favorites", "recent", "trash"].includes(selectedFolder) ? fallback : selectedFolder;
@@ -409,6 +512,8 @@ export default function App() {
         onNewTag={openNewTag}
         onRestore={handleRestore}
         onPurge={askPurgeNote}
+        revision={editorRevision}
+        onKeepLocalCopy={handleKeepLocalCopy}
       />
 
       <NewTagModal
@@ -418,6 +523,24 @@ export default function App() {
         onCreate={handleCreateTag}
       />
 
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => { setSettingsOpen(false); setImportMsg(""); setSyncMsg(""); }}
+        settings={settings}
+        onChange={setSetting}
+        onExport={handleExport}
+        onImport={handleImport}
+        importMsg={importMsg}
+        sync={{
+          status: syncStatus,
+          message: syncMsg,
+          onChooseFolder: handleChooseSyncFolder,
+          onSyncNow: handleSyncNow,
+          onStop: askStopSync,
+        }}
+      />
+
+      {/* Last, so it stacks above Settings when opened from there. */}
       <ConfirmModal
         open={!!confirm}
         title={confirm?.title}
@@ -430,16 +553,6 @@ export default function App() {
           c?.onConfirm?.();
         }}
         onClose={() => setConfirm(null)}
-      />
-
-      <SettingsModal
-        open={settingsOpen}
-        onClose={() => { setSettingsOpen(false); setImportMsg(""); }}
-        settings={settings}
-        onChange={setSetting}
-        onExport={handleExport}
-        onImport={handleImport}
-        importMsg={importMsg}
       />
     </div>
   );

@@ -415,11 +415,14 @@ function TrashedNoteView({ note, onRestore, onPurge }) {
   );
 }
 
-export function Editor({ note, folders, trashMode, onUpdate, onDelete, onToggleFavorite, onChangeFolder, onNewTag, onRestore, onPurge }) {
+export function Editor({ note, folders, trashMode, onUpdate, onDelete, onToggleFavorite, onChangeFolder, onNewTag, onRestore, onPurge, revision = 0, onKeepLocalCopy }) {
   const titleRef = React.useRef(null);
   const contentRef = React.useRef(null);
   const saveTimer = React.useRef(null);
   const activeId = React.useRef(null);
+  // The `revision` the editor DOM was last loaded at. App bumps it when sync
+  // replaced the open note's content from another machine.
+  const loadedRevision = React.useRef(revision);
   const fileInputRef = React.useRef(null);
   const draggedTodoRef = React.useRef(null);
 
@@ -477,7 +480,32 @@ export function Editor({ note, folders, trashMode, onUpdate, onDelete, onToggleF
       activeId.current = null;
       return;
     }
-    if (note.id === activeId.current) return;
+    if (note.id === activeId.current) {
+      if (revision === loadedRevision.current) return;
+      // Same note, new content from sync. Unsaved edits in the DOM were made
+      // on the old version: saving them would silently overwrite the new one,
+      // and dropping them would lose what was just typed. Keep them as their
+      // own note instead, then show the incoming version.
+      loadedRevision.current = revision;
+      if (saveTimer.current != null) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+        onKeepLocalCopy?.({
+          title: (titleRef.current && titleRef.current.textContent.trim()) || "",
+          content: contentRef.current.innerHTML.replace(/\u200B/g, ""),
+          folder: note.folder,
+        });
+      }
+      if (titleRef.current) titleRef.current.textContent = note.title;
+      contentRef.current.innerHTML = note.content;
+      injectTodoHandles(contentRef.current);
+      normalizeRoot();
+      clearFind();
+      setFind({ open: false, query: "", count: 0, index: 0 });
+      resetHistory();
+      return;
+    }
+    loadedRevision.current = revision;
     flushSave(); // persist pending edits of the previous note before swapping the DOM
     activeId.current = note.id;
     if (titleRef.current) titleRef.current.textContent = note.title;
@@ -492,7 +520,7 @@ export function Editor({ note, folders, trashMode, onUpdate, onDelete, onToggleF
     if (!note.title && titleRef.current) {
       setTimeout(() => titleRef.current && titleRef.current.focus(), 60);
     }
-  }, [note && note.id]);
+  }, [note && note.id, revision]);
 
   // \u2500\u2500 Caret <-> character offset (for history & normalization) \u2500\u2500
   const caretOffset = () => {

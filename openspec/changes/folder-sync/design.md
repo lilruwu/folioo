@@ -194,6 +194,11 @@ a real Flatpak build, not assumed.
   file because two machines wrote it before it could reconcile them, Folioo ignores the copy.
   → Folioo's own conflict handling catches most of these cases first; the copy remains on disk
   for the user to recover by hand.
+- **Sync can change the note that is open in the editor.** The editor only reloads its content
+  when another note is selected, so it would keep showing the old version and the next autosave
+  would write it back over the incoming one. → After a sync that changed local data, the open
+  note is reloaded; if it had edits not yet autosaved, they are kept as a `(conflicted copy)`
+  note first.
 - **Tag edits made on two machines between syncs lose the older one.** → Accepted for a much
   simpler model that can propagate deletions; notes are never left without their tag.
 - **Changes from other machines arrive with up to a 5-minute delay** (plus the external tool's

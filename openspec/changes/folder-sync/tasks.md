@@ -70,16 +70,18 @@
 
 ## 5. Frontend
 
-- [ ] 5.1 Add the invoke wrappers to `src/api.js`
-- [ ] 5.2 Add the "Sync" section to `src/settings.jsx`: "Choose folder…" (dialog plugin, directory
+- [x] 5.1 Add the invoke wrappers to `src/api.js`
+- [x] 5.2 Add the "Sync" section to `src/settings.jsx`: "Choose folder…" (dialog plugin, directory
       mode), the hint naming rclone / Syncthing / Nextcloud / Dropbox, the folder path, the
       state line (idle with last-sync time, in progress, unavailable, failed with reason), "Sync
       now" disabled while a pass runs, and "Stop syncing"
-- [ ] 5.3 Confirm "Stop syncing", stating that local notes and the folder's contents are kept
-- [ ] 5.4 Subscribe to the sync-finished event in `src/App.jsx` and reload the lists
+- [x] 5.3 Confirm "Stop syncing", stating that local notes and the folder's contents are kept
+- [x] 5.4 Subscribe to the sync-finished event in `src/App.jsx` and reload the lists; if sync
+      changed the note open in the editor, load the new version — and if it had unsaved edits,
+      keep them first as a `(conflicted copy)` note so neither version is lost
 - [ ] 5.5 Style the section consistently with Appearance and Data in `src/notes.css`, verified in
       all three variants and in light and dark
-- [ ] 5.6 Confirm problems surface in Settings only — never as a modal while writing
+- [x] 5.6 Confirm problems surface in Settings only — never as a modal while writing
 
 ## 6. Flatpak
 

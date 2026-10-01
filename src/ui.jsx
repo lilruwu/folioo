@@ -1,14 +1,28 @@
 // ui.jsx — small theme-aware primitives shared across dialogs.
 import React from "react";
 
+// Open modals, oldest first. Esc closes only the topmost one, so dismissing a
+// confirmation opened from Settings doesn't close Settings too.
+const openModals = [];
+
 // Centered modal with a backdrop. Closes on Esc or backdrop click.
 export function Modal({ open, title, onClose, children, width = 380, footer }) {
+  // Callers pass a fresh onClose on every render; reading it through a ref
+  // keeps this modal's place in the stack fixed from open to close.
+  const onCloseRef = React.useRef(onClose);
+  onCloseRef.current = onClose;
   React.useEffect(() => {
     if (!open) return;
-    const onKey = (e) => e.key === "Escape" && onClose();
+    const token = {};
+    openModals.push(token);
+    const onKey = (e) =>
+      e.key === "Escape" && openModals[openModals.length - 1] === token && onCloseRef.current();
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+    return () => {
+      openModals.splice(openModals.indexOf(token), 1);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   if (!open) return null;
   return (
