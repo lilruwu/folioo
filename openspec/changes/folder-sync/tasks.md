@@ -92,15 +92,15 @@
 
 ## 7. Verification
 
-- [ ] 7.1 Two-profile run-through (two app-data directories sharing one folder, or two machines
+- [x] 7.1 Two-profile run-through (two app-data directories sharing one folder, or two machines
       over Syncthing): create, edit, trash, restore, purge and retag on each side, and check
       convergence in both directions
-- [ ] 7.2 Unmounted-folder run-through: point Folioo at an rclone mount, unmount it, sync, and
+- [x] 7.2 Unmounted-folder run-through: point Folioo at an rclone mount, unmount it, sync, and
       confirm nothing local is deleted and Settings reports the folder unavailable
-- [ ] 7.3 Offline run-through: full local use with the folder unreachable, then a successful pass
-- [ ] 7.4 Choosing a folder that already holds another machine's library merges both sides and
+- [x] 7.3 Offline run-through: full local use with the folder unreachable, then a successful pass
+- [x] 7.4 Choosing a folder that already holds another machine's library merges both sides and
       deletes nothing
-- [ ] 7.5 Update `README.md`: how folder sync works, example setups with rclone (Google Drive)
+- [x] 7.5 Update `README.md`: how folder sync works, example setups with rclone (Google Drive)
       and Syncthing, that deleting files by hand in the folder does not delete notes, and why
       Folioo integrates no cloud provider directly
 

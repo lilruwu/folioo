@@ -29,6 +29,9 @@ prototype; the Rust backend stores notes in a local **SQLite** database.
   Settings panel for theme, mode and font size.
 - **Backup** — export all notes + tags to a JSON file and import it on another
   machine (Settings → Data). Import merges by id, so it's non-destructive.
+- **Folder sync** — keep your notes in step across machines through a folder you
+  choose and sync yourself (rclone, Syncthing, Nextcloud, Dropbox…). No accounts, no
+  cloud run by Folioo. See [Sync between machines](#sync-between-machines).
 - **Themed app icon** — a notepad mark whose accent follows the active theme
   (the window icon is retinted at runtime; honoured by desktops that show window icons).
 
@@ -56,19 +59,79 @@ desktop/
 │   ├── main.jsx          # mount
 │   ├── App.jsx           # shell + state, talks to the backend
 │   ├── components.jsx    # Sidebar / NoteListPanel / Editor
-│   ├── tweaks.jsx        # theme panel (Paper/Slate/Forest, light/dark, size)
+│   ├── settings.jsx      # Settings modal: appearance, data, sync
 │   ├── data.js           # folders + date/color helpers
 │   ├── api.js            # invoke() wrappers → Rust commands
 │   └── notes.css         # design system
 └── src-tauri/            # Rust backend
     ├── src/lib.rs        # commands + app setup
     ├── src/db.rs         # SQLite schema, queries, first-run seed
+    ├── src/sync/library.rs  # sync folder layout, atomic file writes
+    ├── src/sync/engine.rs   # one sync pass: write, read, merge, delete
+    ├── src/sync/service.rs  # background worker: when sync runs
     └── tauri.conf.json   # window + bundle config
 ```
 
 The frontend persists notes exclusively through the backend
 (`list_notes`, `create_note`, `update_note`, `delete_note`, `toggle_favorite`).
 Only theme preferences are kept in `localStorage`.
+
+## Sync between machines
+
+Folioo doesn't run a cloud and doesn't sign you into one. Instead it keeps a copy of
+your notes in **a folder you choose** (Settings → Sync → *Choose folder…*), and you
+move that folder between machines with any tool you already trust. Point Folioo on
+each machine at the same synced folder and they stay in step.
+
+### What happens
+
+- Choosing a folder creates a `Folioo/` subfolder inside it, holding one JSON file per
+  note (`notes/`), one marker per permanently deleted note (`deleted/`), the tag list
+  (`tags.json`) and `library.json`. It's plain JSON you can read without Folioo.
+- **Your edits are written** to the folder about 2 seconds after you stop typing, and
+  whatever is still pending when you close the app.
+- **Changes from other machines are read** when Folioo starts, every 5 minutes, and
+  when you press *Sync now*.
+- **Edited the same note on two machines before they synced?** The newer version stays
+  and the other appears as a separate note marked *(conflicted copy)*. Nothing is lost.
+- **Deleting a note inside Folioo propagates** to the other machines. Deleting a file
+  by hand in the folder does *not* delete the note — Folioo writes it back. A missing
+  file is never treated as a deletion, so an unmounted or empty folder can't wipe
+  your notes: Settings just reports the folder as unavailable.
+- The folder is a mirror, not a history: a note you delete is deleted everywhere. Your
+  cloud provider's own version history and trash, and Folioo's 30-day trash, are the
+  way back.
+- *Stop syncing* forgets the folder. Your local notes and the folder's contents are
+  both left as they are.
+
+### Example: Google Drive with rclone
+
+Google has no official Drive client for Linux; [rclone](https://rclone.org) fills the
+gap. On each machine:
+
+```bash
+rclone config                       # add a remote, e.g. "gdrive" → Google Drive; log in once in the browser
+mkdir -p ~/GoogleDrive
+rclone mount gdrive: ~/GoogleDrive --vfs-cache-mode writes --daemon
+```
+
+Then choose `~/GoogleDrive` in Folioo. `--vfs-cache-mode writes` is what rclone
+recommends for applications that write files; give it a few seconds to upload before
+suspending the machine. The same works for OneDrive, Dropbox, S3 and anything else
+rclone supports. If you'd rather keep a local copy than a mount, `rclone bisync` on a
+timer works too.
+
+### Example: Syncthing (no cloud at all)
+
+Share a folder between your machines with [Syncthing](https://syncthing.net) and choose
+it in Folioo on each one. Notes travel directly between your devices.
+
+### Why no built-in Google Drive / iCloud / Dropbox?
+
+Connecting to a provider directly means registering Folioo with it, publishing a
+homepage and a privacy policy, and shipping credentials inside the app — and iCloud
+offers no API a Linux app can use at all. Folder sync gives you the same result with
+the tool of your choice, and keeps Folioo entirely offline.
 
 ## Develop
 

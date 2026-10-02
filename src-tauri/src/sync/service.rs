@@ -75,6 +75,8 @@ struct Schedule {
     last_change: Option<Instant>,
     pass_requested: bool,
     shutting_down: bool,
+    /// The worker has taken a job and not finished it yet.
+    busy: bool,
 }
 
 struct Shared {
@@ -129,6 +131,17 @@ impl SyncService {
             .expect("could not start the sync worker");
 
         Self { shared }
+    }
+
+    /// Nothing scheduled and nothing running: every change made so far has been
+    /// handled. Tests wait on this instead of guessing at timings.
+    #[cfg(test)]
+    fn settled(&self) -> bool {
+        self.shared
+            .schedule
+            .lock()
+            .map(|s| !s.busy && s.last_change.is_none() && !s.pass_requested)
+            .unwrap_or(false)
     }
 
     pub fn status(&self) -> SyncStatus {
@@ -242,11 +255,13 @@ impl Shared {
                         s.pass_requested = false;
                         // A full pass writes local changes too.
                         s.last_change = None;
+                        s.busy = true;
                         break Job::Pass;
                     }
                     let push_at = s.last_change.map(|t| t + timing.debounce);
                     if push_at.is_some_and(|at| now >= at) {
                         s.last_change = None;
+                        s.busy = true;
                         break Job::Push;
                     }
                     let until = push_at.map_or(next_pass, |at| at.min(next_pass));
@@ -258,6 +273,9 @@ impl Shared {
                 next_pass = Instant::now() + timing.period;
             }
             self.run_job(job);
+            if let Ok(mut s) = self.schedule.lock() {
+                s.busy = false;
+            }
         }
     }
 
@@ -512,6 +530,170 @@ mod tests {
         assert!(db::get_note(&db.lock().unwrap(), "n1").unwrap().is_some());
         let raw = fs::read_to_string(chosen.0.join("Folioo/notes/n1.json")).unwrap();
         assert!(!raw.contains("After stop"), "nothing is written once sync is off");
+    }
+
+    // ── End to end: two machines sharing one folder ─────────────────────────
+
+    /// One installation: its own database and sync service, as in the app.
+    struct Machine {
+        db: Arc<Mutex<Connection>>,
+        svc: SyncService,
+    }
+
+    impl Machine {
+        fn new(folder: &Path) -> Self {
+            let db = database();
+            let (svc, _) = service(&db, fast());
+            svc.set_folder(folder).unwrap();
+            let m = Self { db, svc };
+            m.wait_idle();
+            m
+        }
+
+        fn wait_idle(&self) {
+            eventually("sync to finish", || idle(&self.svc));
+        }
+
+        /// A user action: change the database, then tell sync, as the
+        /// commands in lib.rs do.
+        fn act(&self, f: impl FnOnce(&Connection)) {
+            f(&self.db.lock().unwrap());
+            self.svc.local_change();
+        }
+
+        fn note(&self, id: &str) -> Option<Note> {
+            db::get_note(&self.db.lock().unwrap(), id).unwrap()
+        }
+
+        fn tags(&self) -> Vec<String> {
+            db::list_folders(&self.db.lock().unwrap()).unwrap().into_iter().map(|f| f.name).collect()
+        }
+
+        /// Wait until this machine's push has reached the folder, then have
+        /// `other` read it with a full pass, and wait for `cond` on `other`.
+        fn hand_over(&self, other: &Machine, what: &str, cond: impl Fn(&Machine) -> bool) {
+            eventually("the push to be written", || self.svc.settled());
+            other.svc.sync_now();
+            eventually(what, || cond(other));
+        }
+    }
+
+    #[test]
+    fn two_machines_converge_through_one_folder() {
+        let shared = TempDir::new();
+        let a = Machine::new(&shared.0);
+        let b = Machine::new(&shared.0);
+        let personal = |m: &Machine| m.tags().contains(&"Personal".to_string());
+        assert!(personal(&a) && personal(&b));
+
+        // Create on A.
+        a.act(|c| db::insert_note(c, &note("n1", "Shopping"), crate::now_ms()).unwrap());
+        a.hand_over(&b, "B sees A's new note", |m| m.note("n1").is_some());
+
+        // Edit on B.
+        b.act(|c| {
+            db::update_note(c, "n1", "Shopping list", "<div>milk</div>", "2026-10-02", crate::now_ms())
+                .unwrap()
+        });
+        b.hand_over(&a, "A sees B's edit", |m| {
+            m.note("n1").is_some_and(|n| n.title == "Shopping list")
+        });
+
+        // Trash on A, restore on B.
+        a.act(|c| db::trash_note(c, "n1", "2026-10-02", crate::now_ms()).unwrap());
+        a.hand_over(&b, "B sees it trashed", |m| {
+            m.note("n1").is_some_and(|n| n.deleted_at.is_some())
+        });
+        b.act(|c| db::restore_note(c, "n1", crate::now_ms()).unwrap());
+        b.hand_over(&a, "A sees it restored", |m| {
+            m.note("n1").is_some_and(|n| n.deleted_at.is_none())
+        });
+
+        // A new tag and a retag on A.
+        a.act(|c| {
+            db::insert_folder(c, "Travel", "#2BB0A6", crate::now_ms()).unwrap();
+            db::update_note_folder(c, "n1", "Travel", "2026-10-02", crate::now_ms()).unwrap();
+        });
+        a.hand_over(&b, "B sees the tag and the retag", |m| {
+            m.tags().contains(&"Travel".to_string())
+                && m.note("n1").is_some_and(|n| n.folder == "Travel")
+        });
+
+        // Purge on B.
+        b.act(|c| db::purge_note(c, "n1", crate::now_ms()).unwrap());
+        b.hand_over(&a, "A loses the purged note", |m| m.note("n1").is_none());
+
+        // Tag deletion on A.
+        a.act(|c| db::delete_folder(c, "Travel", "Personal", crate::now_ms()).unwrap());
+        a.hand_over(&b, "B loses the deleted tag", |m| !m.tags().contains(&"Travel".to_string()));
+
+        // And nothing comes back on later passes, on either side.
+        for m in [&a, &b] {
+            m.svc.sync_now();
+            thread::sleep(Duration::from_millis(100));
+            m.wait_idle();
+        }
+        for m in [&a, &b] {
+            assert!(m.note("n1").is_none());
+            assert_eq!(m.tags(), ["Personal"]);
+        }
+    }
+
+    #[test]
+    fn work_done_while_the_folder_is_unreachable_is_written_once_it_returns() {
+        let shared = TempDir::new();
+        let a = Machine::new(&shared.0);
+        a.act(|c| db::insert_note(c, &note("n1", "Before"), crate::now_ms()).unwrap());
+        eventually("the first note is written", || shared.0.join("Folioo/notes/n1.json").exists());
+        a.wait_idle();
+
+        // The drive holding the folder goes away.
+        let away = shared.0.join("Folioo-unplugged");
+        fs::rename(shared.0.join("Folioo"), &away).unwrap();
+        a.act(|c| {
+            db::insert_note(c, &note("n2", "Written offline"), crate::now_ms()).unwrap();
+            db::update_note(c, "n1", "Edited offline", "<div>x</div>", "2026-10-02", crate::now_ms())
+                .unwrap();
+        });
+        eventually("the folder is reported unavailable", || !a.svc.status().available);
+        assert!(a.note("n2").is_some(), "the app keeps working locally");
+
+        // It comes back.
+        fs::rename(&away, shared.0.join("Folioo")).unwrap();
+        a.svc.sync_now();
+
+        let notes = shared.0.join("Folioo/notes");
+        eventually("the offline work reaches the folder", || {
+            notes.join("n2.json").exists()
+                && fs::read_to_string(notes.join("n1.json")).is_ok_and(|r| r.contains("Edited offline"))
+        });
+        eventually("the status recovers", || a.svc.status().available);
+    }
+
+    #[test]
+    fn joining_another_machines_library_merges_and_deletes_nothing() {
+        let shared = TempDir::new();
+        let a = Machine::new(&shared.0);
+        a.act(|c| db::insert_note(c, &note("n1", "From A"), crate::now_ms()).unwrap());
+        eventually("A's note is written", || shared.0.join("Folioo/notes/n1.json").exists());
+
+        // B already has notes and a tag of its own before it ever syncs.
+        let db_b = database();
+        {
+            let c = db_b.lock().unwrap();
+            db::insert_note(&c, &note("n2", "From B"), 10).unwrap();
+            db::insert_folder(&c, "Recipes", "#E86BB0", 10).unwrap();
+        }
+        let (svc_b, _) = service(&db_b, fast());
+        svc_b.set_folder(&shared.0.join("Folioo")).unwrap();
+        let b = Machine { db: db_b, svc: svc_b };
+        b.wait_idle();
+        b.hand_over(&a, "A gets B's note", |m| m.note("n2").is_some());
+
+        for m in [&a, &b] {
+            assert!(m.note("n1").is_some() && m.note("n2").is_some());
+            assert!(m.tags().contains(&"Recipes".to_string()), "{:?}", m.tags());
+        }
     }
 
     #[test]

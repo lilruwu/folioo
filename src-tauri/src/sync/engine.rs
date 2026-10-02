@@ -1274,6 +1274,73 @@ mod tests {
         );
     }
 
+    // ── Against a real folder ───────────────────────────────────────────────
+
+    /// Manual check against a real mount (an rclone mount, a Syncthing folder…):
+    ///
+    ///   FOLIOO_SYNC_DIR=/mnt/point cargo test real_folder -- --ignored
+    ///
+    /// Network and FUSE filesystems differ from a local disk in exactly what
+    /// sync leans on — rename-over for atomic writes, mtimes for change
+    /// detection — so this exercises those on the real thing.
+    #[test]
+    #[ignore = "needs FOLIOO_SYNC_DIR pointing at a real mount"]
+    fn real_folder_round_trip() {
+        let mount = PathBuf::from(std::env::var("FOLIOO_SYNC_DIR").expect("set FOLIOO_SYNC_DIR"));
+        let dir = mount.join("Folioo");
+        init_library(&dir).unwrap();
+        let pass = |m: &Machine, now| {
+            let report = run(&m.0, &dir, now).unwrap();
+            assert!(report.errors.is_empty(), "{:?}", report.errors);
+            report
+        };
+        let (a, b) = (Machine::new(&["Personal"]), Machine::new(&["Personal"]));
+        let photo = format!("<img src=\"data:image/png;base64,{}\">", "A".repeat(2_000_000));
+
+        a.create("n1", "Holiday", "Personal", 10);
+        db::update_note(&a.conn(), "n1", "Holiday", &photo, "2026-10-02", 20).unwrap();
+        pass(&a, 100);
+        pass(&b, 200);
+        assert_eq!(b.note("n1").unwrap().content, photo, "a 2 MB note arrives intact");
+
+        b.edit("n1", "Holiday, edited", 300);
+        let pushed = push_pending(&b.0, &dir, 400).unwrap();
+        assert_eq!(pushed.written, 1);
+        pass(&a, 500);
+        assert_eq!(a.note("n1").unwrap().title, "Holiday, edited");
+
+        // Unchanged library: nothing is parsed, so mtimes are stable here too.
+        assert_eq!(pass(&a, 600).files_parsed, 0);
+
+        db::purge_note(&a.conn(), "n1", 700).unwrap();
+        push_pending(&a.0, &dir, 800).unwrap();
+        pass(&b, 900);
+        assert!(b.note("n1").is_none());
+
+        let leftovers: Vec<_> = fs::read_dir(dir.join("notes"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(leftovers.is_empty(), "temporary files left behind: {leftovers:?}");
+    }
+
+    /// The same mount point once unmounted: an ordinary empty directory.
+    ///
+    ///   FOLIOO_SYNC_DIR=/mnt/point cargo test real_unmounted -- --ignored
+    #[test]
+    #[ignore = "needs FOLIOO_SYNC_DIR pointing at an unmounted mount point"]
+    fn real_unmounted_folder_is_left_alone() {
+        let mount = PathBuf::from(std::env::var("FOLIOO_SYNC_DIR").expect("set FOLIOO_SYNC_DIR"));
+        let a = Machine::new(&["Personal"]);
+        a.create("n1", "Precious", "Personal", 10);
+
+        let err = run(&a.0, &mount.join("Folioo"), 100).unwrap_err();
+
+        assert!(matches!(err, SyncError::Library(LibraryError::Unavailable)), "got {err:?}");
+        assert_eq!(a.titles(), ["Precious"]);
+        assert_eq!(fs::read_dir(&mount).unwrap().count(), 0, "nothing written to the mount point");
+    }
+
     // ── Policy table ────────────────────────────────────────────────────────
 
     #[test]
