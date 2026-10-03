@@ -1,22 +1,23 @@
-// lib.rs — Linux Notes backend.
+// lib.rs — Folioo backend.
 // Persists notes in a local SQLite database and exposes CRUD commands to the
 // React frontend over Tauri's IPC bridge.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 mod db;
+mod sync;
 
 /// Days a note stays in the trash before it is purged automatically.
 pub const TRASH_RETENTION_DAYS: i64 = 30;
 
 /// A single note. Field names match the shape the frontend expects.
 /// `deleted_at` is `None` for active notes and an ISO date for trashed ones.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Note {
     pub id: String,
     pub title: String,
@@ -47,15 +48,19 @@ pub struct NoteSummary {
 }
 
 /// A tag/folder a note can belong to.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Folder {
     pub name: String,
     pub color: String,
 }
 
-/// Shared application state: a single SQLite connection behind a mutex.
+/// Shared application state: one SQLite connection behind a mutex — shared
+/// with the sync worker — and the sync service. Every command that changes
+/// notes or tags tells the service, which writes the change to the sync folder
+/// once the user pauses.
 pub struct AppState {
-    pub db: Mutex<Connection>,
+    pub db: Arc<Mutex<Connection>>,
+    pub sync: sync::SyncService,
 }
 
 // ── Date / id helpers ───────────────────────────────────────────────────────
@@ -95,8 +100,19 @@ pub fn iso_offset(days_ago: i64) -> String {
     iso_from_days(epoch_days() - days_ago)
 }
 
+/// Milliseconds elapsed since the Unix epoch.
+///
+/// `today_iso()` is day-granular, which cannot order two edits made on the same
+/// day — the resolution sync needs to decide which of two copies is newer.
+pub fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 /// A reasonably unique id derived from the current time in nanoseconds.
-fn generate_id() -> String {
+pub(crate) fn generate_id() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
@@ -135,7 +151,8 @@ fn create_note(folder: String, state: tauri::State<'_, AppState>) -> Result<Note
         deleted_at: None,
     };
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    db::insert_note(&conn, &note).map_err(|e| e.to_string())?;
+    db::insert_note(&conn, &note, now_ms()).map_err(|e| e.to_string())?;
+    state.sync.local_change();
     Ok(note)
 }
 
@@ -147,7 +164,9 @@ fn update_note(
     state: tauri::State<'_, AppState>,
 ) -> Result<NoteSummary, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    db::update_note(&conn, &id, &title, &content, &today_iso()).map_err(|e| e.to_string())?;
+    db::update_note(&conn, &id, &title, &content, &today_iso(), now_ms())
+        .map_err(|e| e.to_string())?;
+    state.sync.local_change();
     db::get_summary(&conn, &id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Note {id} not found"))
@@ -157,7 +176,8 @@ fn update_note(
 #[tauri::command]
 fn delete_note(id: String, state: tauri::State<'_, AppState>) -> Result<NoteSummary, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    db::trash_note(&conn, &id, &today_iso()).map_err(|e| e.to_string())?;
+    db::trash_note(&conn, &id, &today_iso(), now_ms()).map_err(|e| e.to_string())?;
+    state.sync.local_change();
     db::get_summary(&conn, &id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Note {id} not found"))
@@ -172,7 +192,8 @@ fn list_trash(state: tauri::State<'_, AppState>) -> Result<Vec<NoteSummary>, Str
 #[tauri::command]
 fn restore_note(id: String, state: tauri::State<'_, AppState>) -> Result<NoteSummary, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    db::restore_note(&conn, &id).map_err(|e| e.to_string())?;
+    db::restore_note(&conn, &id, now_ms()).map_err(|e| e.to_string())?;
+    state.sync.local_change();
     db::get_summary(&conn, &id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Note {id} not found"))
@@ -182,20 +203,26 @@ fn restore_note(id: String, state: tauri::State<'_, AppState>) -> Result<NoteSum
 #[tauri::command]
 fn purge_note(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    db::purge_note(&conn, &id).map_err(|e| e.to_string())
+    db::purge_note(&conn, &id, now_ms()).map_err(|e| e.to_string())?;
+    state.sync.local_change();
+    Ok(())
 }
 
 /// Permanently delete everything in the trash.
 #[tauri::command]
 fn empty_trash(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    db::empty_trash(&conn).map_err(|e| e.to_string())
+    db::empty_trash(&conn, now_ms()).map_err(|e| e.to_string())?;
+    state.sync.local_change();
+    Ok(())
 }
 
 #[tauri::command]
 fn toggle_favorite(id: String, state: tauri::State<'_, AppState>) -> Result<bool, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    db::toggle_favorite(&conn, &id).map_err(|e| e.to_string())
+    let favorite = db::toggle_favorite(&conn, &id, now_ms()).map_err(|e| e.to_string())?;
+    state.sync.local_change();
+    Ok(favorite)
 }
 
 #[tauri::command]
@@ -212,16 +239,17 @@ fn create_folder(
 ) -> Result<Folder, String> {
     let name = name.trim().to_string();
     if name.is_empty() {
-        return Err("El nombre de la etiqueta no puede estar vacío".into());
+        return Err("The tag name cannot be empty".into());
     }
     if name.chars().count() > 24 {
-        return Err("El nombre es demasiado largo (máx. 24 caracteres)".into());
+        return Err("The name is too long (max. 24 characters)".into());
     }
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     if db::folder_exists(&conn, &name).map_err(|e| e.to_string())? {
-        return Err(format!("La etiqueta «{name}» ya existe"));
+        return Err(format!("The tag \"{name}\" already exists"));
     }
-    db::insert_folder(&conn, &name, &color).map_err(|e| e.to_string())?;
+    db::insert_folder(&conn, &name, &color, now_ms()).map_err(|e| e.to_string())?;
+    state.sync.local_change();
     Ok(Folder { name, color })
 }
 
@@ -238,12 +266,13 @@ fn delete_folder(
 ) -> Result<DeleteFolderResult, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     if db::folder_count(&conn).map_err(|e| e.to_string())? <= 1 {
-        return Err("Debe existir al menos una etiqueta".into());
+        return Err("At least one tag must exist".into());
     }
     let fallback = db::first_folder_except(&conn, &name)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| "No hay otra etiqueta a la que mover las notas".to_string())?;
-    db::delete_folder(&conn, &name, &fallback).map_err(|e| e.to_string())?;
+        .ok_or_else(|| "There is no other tag to move the notes to".to_string())?;
+    db::delete_folder(&conn, &name, &fallback, now_ms()).map_err(|e| e.to_string())?;
+    state.sync.local_change();
     Ok(DeleteFolderResult { fallback })
 }
 
@@ -254,7 +283,9 @@ fn set_note_folder(
     state: tauri::State<'_, AppState>,
 ) -> Result<NoteSummary, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    db::update_note_folder(&conn, &id, &folder, &today_iso()).map_err(|e| e.to_string())?;
+    db::update_note_folder(&conn, &id, &folder, &today_iso(), now_ms())
+        .map_err(|e| e.to_string())?;
+    state.sync.local_change();
     db::get_summary(&conn, &id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Note {id} not found"))
@@ -275,7 +306,7 @@ struct ExportData {
 fn export_to_path(path: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let data = ExportData {
-        app: "linux-notes".into(),
+        app: "folioo".into(),
         version: 1,
         folders: db::list_folders(&conn).map_err(|e| e.to_string())?,
         notes: db::list_all_notes(&conn).map_err(|e| e.to_string())?,
@@ -291,17 +322,93 @@ fn export_to_path(path: String, state: tauri::State<'_, AppState>) -> Result<(),
 fn import_from_path(path: String, state: tauri::State<'_, AppState>) -> Result<usize, String> {
     let json = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let data: ExportData =
-        serde_json::from_str(&json).map_err(|_| "El archivo no es una copia válida".to_string())?;
+        serde_json::from_str(&json).map_err(|_| "The file is not a valid backup".to_string())?;
     let mut guard = state.db.lock().map_err(|e| e.to_string())?;
     let tx = guard.transaction().map_err(|e| e.to_string())?;
+    // One timestamp for the whole import: every row lands as a single edit.
+    let now = now_ms();
     for f in &data.folders {
-        db::upsert_folder_ignore(&tx, &f.name, &f.color).map_err(|e| e.to_string())?;
+        db::upsert_folder_ignore(&tx, &f.name, &f.color, now).map_err(|e| e.to_string())?;
     }
     for n in &data.notes {
-        db::upsert_note(&tx, n).map_err(|e| e.to_string())?;
+        db::upsert_note(&tx, n, now).map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())?;
+    state.sync.local_change();
     Ok(data.notes.len())
+}
+
+// ── Folder sync ─────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn sync_status(state: tauri::State<'_, AppState>) -> sync::SyncStatus {
+    state.sync.status()
+}
+
+/// Async so that waiting for a pass already in progress never blocks the main
+/// thread, where synchronous commands run.
+#[tauri::command]
+async fn sync_set_folder(
+    path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<sync::SyncStatus, String> {
+    state.sync.set_folder(std::path::Path::new(&path))
+}
+
+#[tauri::command]
+async fn sync_stop(state: tauri::State<'_, AppState>) -> Result<sync::SyncStatus, String> {
+    state.sync.stop()
+}
+
+#[tauri::command]
+fn sync_now(state: tauri::State<'_, AppState>) {
+    state.sync.sync_now();
+}
+
+// ── Legacy data migration ───────────────────────────────────────────────────
+
+/// Bundle identifier used before the app was renamed to Folioo.
+const LEGACY_IDENTIFIER: &str = "org.linuxnotes.app";
+const IDENTIFIER: &str = "org.folioo.app";
+
+/// Adopt the database left behind by the pre-rename app, if any.
+///
+/// The app-data directory is derived from the bundle identifier, so renaming
+/// the app points it at a brand-new (empty) directory while the user's notes
+/// still sit in the old one. Swapping the identifier inside the resolved path
+/// finds the old directory for a plain install (`~/.local/share/<id>`).
+///
+/// It does NOT rescue a Flatpak install: the old data lives in
+/// `~/.var/app/org.linuxnotes.app/`, which this sandbox cannot read. Those
+/// users have to export a backup from the old build and import it here.
+///
+/// The copy only happens when the new database does not exist yet, so it never
+/// overwrites newer data and is a no-op on every launch after the first.
+fn migrate_legacy_db(dir: &std::path::Path, db_path: &std::path::Path) {
+    if db_path.exists() {
+        return;
+    }
+    let Some(legacy_dir) = dir
+        .to_str()
+        .map(|p| p.replace(IDENTIFIER, LEGACY_IDENTIFIER))
+        .map(std::path::PathBuf::from)
+    else {
+        return;
+    };
+    if legacy_dir == dir {
+        return;
+    }
+    // SQLite may keep the WAL and shared-memory files alongside the database;
+    // copy whichever exist so a non-checkpointed WAL isn't left behind.
+    for suffix in ["", "-wal", "-shm"] {
+        let name = format!("notes.db{suffix}");
+        let from = legacy_dir.join(&name);
+        if from.exists() {
+            if let Err(e) = std::fs::copy(&from, dir.join(&name)) {
+                eprintln!("Could not migrate {name} from the previous version: {e}");
+            }
+        }
+    }
 }
 
 // ── Entry point ─────────────────────────────────────────────────────────────
@@ -315,12 +422,23 @@ pub fn run() {
             // Store the database in the platform-appropriate app-data directory.
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
-            let conn = Connection::open(dir.join("notes.db"))?;
+            let db_path = dir.join("notes.db");
+            // Carry over the notes of anyone upgrading from the Linux Notes era.
+            migrate_legacy_db(&dir, &db_path);
+            let conn = Connection::open(&db_path)?;
             db::init(&conn)?;
-            db::seed_folders_if_empty(&conn)?;
+            db::seed_folders_if_empty(&conn, now_ms())?;
             // Purge notes that have sat in the trash past the retention window.
-            let _ = db::purge_expired(&conn, &iso_offset(TRASH_RETENTION_DAYS));
-            app.manage(AppState { db: Mutex::new(conn) });
+            let _ = db::purge_expired(&conn, &iso_offset(TRASH_RETENTION_DAYS), now_ms());
+            let db = Arc::new(Mutex::new(conn));
+            let handle = app.handle().clone();
+            let sync = sync::SyncService::start(Arc::clone(&db), sync::Timing::default(), move |event| {
+                let _ = match event {
+                    sync::SyncEvent::Status(status) => handle.emit("sync-status", status),
+                    sync::SyncEvent::LocalDataChanged => handle.emit("sync-changed", ()),
+                };
+            });
+            app.manage(AppState { db, sync });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -339,8 +457,21 @@ pub fn run() {
             purge_note,
             empty_trash,
             export_to_path,
-            import_from_path
+            import_from_path,
+            sync_status,
+            sync_set_folder,
+            sync_stop,
+            sync_now
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Whatever the user typed in the last couple of seconds reaches the
+            // sync folder before the process ends.
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app.try_state::<AppState>() {
+                    state.sync.flush_and_stop();
+                }
+            }
+        });
 }

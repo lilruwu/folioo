@@ -1,14 +1,28 @@
 // ui.jsx — small theme-aware primitives shared across dialogs.
 import React from "react";
 
+// Open modals, oldest first. Esc closes only the topmost one, so dismissing a
+// confirmation opened from Settings doesn't close Settings too.
+const openModals = [];
+
 // Centered modal with a backdrop. Closes on Esc or backdrop click.
 export function Modal({ open, title, onClose, children, width = 380, footer }) {
+  // Callers pass a fresh onClose on every render; reading it through a ref
+  // keeps this modal's place in the stack fixed from open to close.
+  const onCloseRef = React.useRef(onClose);
+  onCloseRef.current = onClose;
   React.useEffect(() => {
     if (!open) return;
-    const onKey = (e) => e.key === "Escape" && onClose();
+    const token = {};
+    openModals.push(token);
+    const onKey = (e) =>
+      e.key === "Escape" && openModals[openModals.length - 1] === token && onCloseRef.current();
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+    return () => {
+      openModals.splice(openModals.indexOf(token), 1);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   if (!open) return null;
   return (
@@ -23,7 +37,7 @@ export function Modal({ open, title, onClose, children, width = 380, footer }) {
       >
         <div className="modal-head">
           <span className="modal-title">{title}</span>
-          <button className="modal-x" aria-label="Cerrar" onClick={onClose}>
+          <button className="modal-x" aria-label="Close" onClick={onClose}>
             ✕
           </button>
         </div>
@@ -97,7 +111,7 @@ export function Slider({ value, min = 0, max = 100, step = 1, onChange }) {
 }
 
 // Confirmation dialog with an optional destructive accent.
-export function ConfirmModal({ open, title, message, confirmLabel = "Aceptar", danger, onConfirm, onClose }) {
+export function ConfirmModal({ open, title, message, confirmLabel = "OK", danger, onConfirm, onClose }) {
   return (
     <Modal
       open={open}
@@ -106,7 +120,7 @@ export function ConfirmModal({ open, title, message, confirmLabel = "Aceptar", d
       width={360}
       footer={
         <>
-          <button className="btn-ghost" onClick={onClose}>Cancelar</button>
+          <button className="btn-ghost" onClick={onClose}>Cancel</button>
           <button className={danger ? "btn-danger" : "btn-primary"} onClick={onConfirm}>
             {confirmLabel}
           </button>

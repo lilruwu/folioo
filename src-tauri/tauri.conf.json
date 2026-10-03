@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Linux Notes",
+  "productName": "Folioo",
   "version": "0.1.0",
-  "identifier": "org.linuxnotes.app",
+  "identifier": "org.folioo.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -12,13 +12,14 @@
   "app": {
     "windows": [
       {
-        "title": "Linux Notes",
+        "title": "Folioo",
         "width": 1080,
         "height": 720,
         "minWidth": 720,
         "minHeight": 480,
         "resizable": true,
-        "center": true
+        "center": true,
+        "transparent": true
       }
     ],
     "security": {
@@ -36,6 +37,6 @@
     ],
     "category": "Productivity",
     "shortDescription": "Open-source notes for Linux",
-    "longDescription": "Linux Notes — a warm, paper-inspired open-source alternative to Apple Notes, built with Tauri + React and backed by SQLite."
+    "longDescription": "Folioo — a warm, paper-inspired open-source alternative to Apple Notes, built with Tauri + React and backed by SQLite."
   }
 }

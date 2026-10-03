@@ -4,7 +4,7 @@ src-tauri/target
 src-tauri/gen
 
 # Flatpak build artifacts
-flatpak/linux-notes.deb
+flatpak/*.deb
 flatpak-build/
 flatpak-repo/
 .flatpak-builder/

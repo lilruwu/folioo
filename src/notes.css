@@ -1,5 +1,5 @@
 /* ============================================================
-   Linux Notes — Design System + Theme Variables
+   Folioo — Design System + Theme Variables
    ============================================================ */
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -11,9 +11,17 @@ html, body, #root {
 
 /* Paint the themed background straight away (the bootstrap script in index.html
    sets the theme class before first paint), so there's no white flash on open. */
-html { background: var(--bg); color: var(--fg); }
+html { background: var(--bg); color: var(--fg); transition: background var(--t); }
 
 body { font-family: system-ui, -apple-system, 'Segoe UI', 'Ubuntu', sans-serif; }
+
+/* ── TRANSLUCID (transparent background for KDE compositor blur) ── */
+html.v-translucid { background: transparent; }
+html.v-translucid .app-root { background: transparent; }
+html.v-translucid .editor-panel { background: transparent; }
+html.v-translucid .note-list-panel { background: transparent; }
+html.v-translucid .editor-body { background: transparent; }
+html.v-translucid .no-selection { background: transparent; }
 
 /* ── THEME VARIABLES ──
    Light = pure white, Dark = pure black. The three styles (Papel / Pizarra /
@@ -262,6 +270,7 @@ html.v-forest.t-dark  { --accent: #6AAD72; --sel: rgba(106,173,114,0.18); --efon
   padding: 28px 44px 40px;
   display: flex; flex-direction: column;
   position: relative; /* anchor for the in-table "+" handles */
+  transition: background var(--t);
 }
 .editor-meta-row {
   display: flex; align-items: center; gap: 8px;
@@ -588,9 +597,30 @@ html.v-forest.t-dark  { --accent: #6AAD72; --sel: rgba(106,173,114,0.18); --efon
 }
 .settings-section:first-child { padding-top: 4px; }
 .settings-hint { font-size: 12px; line-height: 1.45; color: var(--fg3); margin-bottom: 10px; }
-.settings-actions { display: flex; gap: 8px; }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .settings-actions .btn-ghost { flex: 1; }
 .settings-note { margin-top: 10px; font-size: 12px; color: var(--accent); }
+
+/* Sync section */
+.sync-folder {
+  font-size: 12px; color: var(--fg2);
+  padding: 7px 10px; margin-bottom: 8px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sync-state {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12px; line-height: 1.4; color: var(--fg3); margin-bottom: 10px;
+}
+.sync-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--fg3); }
+.sync-ok .sync-dot { background: var(--accent); }
+.sync-busy .sync-dot { animation: sync-pulse 1.2s ease-in-out infinite; }
+.sync-problem { color: #c0392b; }
+.sync-problem .sync-dot { background: #d84a4a; }
+.t-dark .sync-problem { color: #ff8a8a; }
+@keyframes sync-pulse { 50% { opacity: 0.3; } }
+.sync-message { margin-top: 10px; font-size: 12px; color: #c0392b; }
+.t-dark .sync-message { color: #ff8a8a; }
 .field { display: flex; flex-direction: column; gap: 7px; margin-bottom: 12px; }
 .field-head { display: flex; align-items: baseline; justify-content: space-between; }
 .field-label { font-size: 12.5px; font-weight: 500; color: var(--fg2); }
@@ -666,7 +696,10 @@ html.v-forest.t-dark  { --accent: #6AAD72; --sel: rgba(106,173,114,0.18); --efon
   white-space: nowrap;
 }
 .btn-ghost { border: 1px solid var(--border); background: transparent; color: var(--fg2); }
-.btn-ghost:hover { background: var(--bg2); color: var(--fg); }
+.btn-ghost:hover:not(:disabled) { background: var(--bg2); color: var(--fg); }
+.btn-ghost:disabled { opacity: 0.45; cursor: default; }
+.btn-ghost-danger { color: #c0504a; }
+.btn-ghost-danger:hover:not(:disabled) { color: #c0504a; }
 .btn-primary { border: none; background: var(--accent); color: var(--accfg); }
 .btn-primary:hover:not(:disabled) { opacity: 0.86; }
 .btn-primary:disabled { opacity: 0.45; cursor: default; }
@@ -711,3 +744,13 @@ html.v-forest.t-dark  { --accent: #6AAD72; --sel: rgba(106,173,114,0.18); --efon
 
 .editor-title-static, .editor-content-static { cursor: default; }
 .editor-content-static { opacity: 0.92; }
+
+/* ── TRANSLUCID OVERRIDES ──────────────────────────────────
+   Kept in one spot so opaque chrome surfaces still render
+   above a transparent window background (KDE blur).       */
+html.v-translucid .sidebar { background: var(--bg2); }
+html.v-translucid .modal-card { background: var(--bg); }
+html.v-translucid .draw-modal { background: var(--bg); }
+html.v-translucid .trash-bar { background: var(--bg2); }
+html.v-translucid .editor-toolbar { background: var(--bg); }
+html.v-translucid .find-bar { background: var(--bg2); }

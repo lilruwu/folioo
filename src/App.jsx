@@ -5,12 +5,13 @@ import { useSettings, SettingsModal } from "./settings.jsx";
 import { ConfirmModal } from "./ui.jsx";
 import { applyThemedIcon, applyWindowTheme } from "./appicon.js";
 import { save, open } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import * as api from "./api.js";
 
 export default function App() {
   // ── Appearance settings ──
   // Default mode is "auto" so a fresh install follows the system light/dark.
-  const [settings, setSetting] = useSettings({ variant: "paper", theme: "auto", fontSize: 15 });
+  const [settings, setSetting] = useSettings({ variant: "paper", theme: "auto", fontSize: 15, translucid: false });
   const [settingsOpen, setSettingsOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -20,7 +21,7 @@ export default function App() {
       settings.theme === "auto" ? (mq.matches ? "dark" : "light") : settings.theme;
     const apply = () => {
       const t = resolved();
-      document.documentElement.className = `v-${settings.variant} t-${t}`;
+      document.documentElement.className = `v-${settings.variant} t-${t}${settings.translucid ? " v-translucid" : ""}`;
       document.documentElement.style.setProperty("--font-size", settings.fontSize + "px");
       // Retint the window icon to match the active theme accent (best-effort).
       applyThemedIcon();
@@ -34,7 +35,7 @@ export default function App() {
       mq.addEventListener("change", apply);
       return () => mq.removeEventListener("change", apply);
     }
-  }, [settings.variant, settings.theme, settings.fontSize]);
+  }, [settings.variant, settings.theme, settings.fontSize, settings.translucid]);
 
   // ── Data (source of truth lives in SQLite via the backend) ──
   const [notes, setNotes] = React.useState([]);
@@ -42,7 +43,11 @@ export default function App() {
   const [folders, setFolders] = React.useState([]);
   const [selectedId, setSelectedId] = React.useState(null);
   const [selectedFolder, setSelectedFolder] = React.useState(() => {
-    try { return localStorage.getItem("linux-notes-folder") || "all"; } catch { return "all"; }
+    try {
+      // The "linux-notes-*" keys predate the rename; read them once so an
+      // upgrade doesn't reset the last opened tag / note.
+      return localStorage.getItem("folioo-folder") || localStorage.getItem("linux-notes-folder") || "all";
+    } catch { return "all"; }
   });
   const [searchQuery, setSearchQuery] = React.useState("");
   // Debounced copy used for filtering, so the list isn't re-filtered on every keystroke.
@@ -62,6 +67,12 @@ export default function App() {
   const [confirm, setConfirm] = React.useState(null);
   const [importMsg, setImportMsg] = React.useState("");
 
+  // ── Folder sync ──
+  const [syncStatus, setSyncStatus] = React.useState(null);
+  const [syncMsg, setSyncMsg] = React.useState("");
+  // Bumped when sync replaced the content of the note open in the editor.
+  const [editorRevision, setEditorRevision] = React.useState(0);
+
   const trashMode = selectedFolder === "trash";
 
   // Initial load. Both lists hold lightweight summaries (no HTML content) —
@@ -74,7 +85,7 @@ export default function App() {
         setNotes(rows);
         // Restore the last opened note if it still exists.
         let saved = null;
-        try { saved = localStorage.getItem("linux-notes-note"); } catch {}
+        try { saved = localStorage.getItem("folioo-note") || localStorage.getItem("linux-notes-note"); } catch {}
         const pick = rows.find((n) => n.id === saved) || rows[0];
         if (pick) setSelectedId(pick.id);
       })
@@ -99,10 +110,10 @@ export default function App() {
 
   // Persist the current note / folder so they're restored next launch.
   React.useEffect(() => {
-    try { localStorage.setItem("linux-notes-folder", selectedFolder); } catch {}
+    try { localStorage.setItem("folioo-folder", selectedFolder); } catch {}
   }, [selectedFolder]);
   React.useEffect(() => {
-    try { if (selectedId) localStorage.setItem("linux-notes-note", selectedId); } catch {}
+    try { if (selectedId) localStorage.setItem("folioo-note", selectedId); } catch {}
   }, [selectedId]);
 
   // ── Derived: filtered + sorted ──
@@ -147,6 +158,102 @@ export default function App() {
   });
 
   // ── Notes CRUD ──
+  // ── Folder sync: reacting to what other machines wrote ──
+  // Sync events arrive outside React's render cycle, so the current selection
+  // is read through refs rather than captured once.
+  const selectedIdRef = React.useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  const selectedNoteRef = React.useRef(selectedNote);
+  selectedNoteRef.current = selectedNote;
+
+  const reloadFromSync = React.useCallback(async () => {
+    try {
+      const [n, t, f] = await Promise.all([api.listNotes(), api.listTrash(), api.listFolders()]);
+      setNotes(n);
+      setTrash(t);
+      setFolders(f);
+      // The open note may have changed underneath the editor. The editor only
+      // reloads its content when told to, and would otherwise autosave the old
+      // version back over the one that just arrived.
+      const id = selectedIdRef.current;
+      const shown = selectedNoteRef.current;
+      if (!id || !shown || shown.id !== id) return;
+      const fresh = await api.getNote(id).catch(() => null);
+      if (!fresh) return; // purged by sync: the list reload moves the selection
+      const contentChanged = fresh.title !== shown.title || fresh.content !== shown.content;
+      if (contentChanged || fresh.folder !== shown.folder || fresh.favorite !== shown.favorite || fresh.deletedAt !== shown.deletedAt) {
+        setSelectedNote(fresh);
+      }
+      if (contentChanged) setEditorRevision((r) => r + 1);
+    } catch (e) {
+      console.error("Reload after sync failed:", e);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    api.syncStatus().then(setSyncStatus).catch((e) => console.error("Sync status failed:", e));
+    // listen() resolves asynchronously; if the effect is torn down first
+    // (React strict mode mounts twice), unsubscribe as soon as it resolves.
+    let disposed = false;
+    const subscriptions = [
+      listen("sync-status", (e) => setSyncStatus(e.payload)),
+      listen("sync-changed", () => reloadFromSync()),
+    ];
+    return () => {
+      disposed = true;
+      subscriptions.forEach((p) => p.then((unlisten) => disposed && unlisten()));
+    };
+  }, [reloadFromSync]);
+
+  // Sync replaced the open note while it had edits not yet autosaved: keep
+  // those edits as a separate note before the editor loads the new version.
+  const handleKeepLocalCopy = React.useCallback(async ({ title, content, folder }) => {
+    try {
+      const created = await api.createNote(folder);
+      await api.updateNote(created.id, `${title || "Untitled"} (conflicted copy)`, content);
+      setNotes(await api.listNotes());
+    } catch (e) {
+      console.error("Keeping the unsaved copy failed:", e);
+    }
+  }, []);
+
+  const handleChooseSyncFolder = React.useCallback(async () => {
+    setSyncMsg("");
+    try {
+      const selected = await open({ directory: true, multiple: false });
+      if (!selected) return;
+      const path = Array.isArray(selected) ? selected[0] : selected;
+      setSyncStatus(await api.syncSetFolder(path));
+    } catch (e) {
+      console.error("Choosing the sync folder failed:", e);
+      setSyncMsg(typeof e === "string" ? e : "Could not use that folder.");
+    }
+  }, []);
+
+  const handleSyncNow = React.useCallback(() => {
+    setSyncMsg("");
+    api.syncNow().catch((e) => console.error("Sync now failed:", e));
+  }, []);
+
+  const askStopSync = React.useCallback(() => {
+    setConfirm({
+      title: "Stop syncing",
+      confirmLabel: "Stop syncing",
+      message:
+        "Folioo will stop syncing with this folder. Your notes stay on this computer, and the " +
+        "folder keeps its copy — nothing is deleted.",
+      onConfirm: async () => {
+        try {
+          setSyncStatus(await api.syncStop());
+          setSyncMsg("");
+        } catch (e) {
+          console.error("Stopping sync failed:", e);
+          setSyncMsg("Could not stop syncing.");
+        }
+      },
+    });
+  }, []);
+
   const handleCreate = React.useCallback(async () => {
     const fallback = folders[0]?.name || "Personal";
     const folder = ["all", "favorites", "recent", "trash"].includes(selectedFolder) ? fallback : selectedFolder;
@@ -203,11 +310,11 @@ export default function App() {
     (id) => {
       const note = notes.find((n) => n.id === id);
       if (!note) return;
-      const title = note.title || "Sin título";
+      const title = note.title || "Untitled";
       setConfirm({
-        title: "Mover a la papelera",
-        message: `«${title}» se moverá a la papelera. Podrás restaurarla durante 30 días.`,
-        confirmLabel: "Mover a la papelera",
+        title: "Move to trash",
+        message: `"${title}" will be moved to the trash. You can restore it for 30 days.`,
+        confirmLabel: "Move to trash",
         onConfirm: async () => {
           const summary = await api.deleteNote(id);
           setNotes((prev) => prev.filter((n) => n.id !== id));
@@ -231,12 +338,12 @@ export default function App() {
   const askPurgeNote = React.useCallback(
     (id) => {
       const note = trash.find((n) => n.id === id);
-      const title = note?.title || "Sin título";
+      const title = note?.title || "Untitled";
       setConfirm({
-        title: "Eliminar definitivamente",
+        title: "Delete permanently",
         danger: true,
-        confirmLabel: "Eliminar",
-        message: `«${title}» se eliminará para siempre. Esta acción no se puede deshacer.`,
+        confirmLabel: "Delete",
+        message: `"${title}" will be deleted forever. This cannot be undone.`,
         onConfirm: async () => {
           await api.purgeNote(id);
           setTrash((prev) => prev.filter((n) => n.id !== id));
@@ -249,10 +356,10 @@ export default function App() {
   const askEmptyTrash = React.useCallback(() => {
     const count = trash.length;
     setConfirm({
-      title: "Vaciar papelera",
+      title: "Empty trash",
       danger: true,
-      confirmLabel: "Vaciar papelera",
-      message: `Se eliminarán ${count} nota${count === 1 ? "" : "s"} para siempre. Esta acción no se puede deshacer.`,
+      confirmLabel: "Empty trash",
+      message: `${count} note${count === 1 ? "" : "s"} will be deleted forever. This cannot be undone.`,
       onConfirm: async () => {
         await api.emptyTrash();
         setTrash([]);
@@ -295,13 +402,13 @@ export default function App() {
       const used = counts.byFolder[folder.name] || 0;
       const fallback = folders.find((f) => f.name !== folder.name)?.name;
       setConfirm({
-        title: "Eliminar etiqueta",
+        title: "Delete tag",
         danger: true,
-        confirmLabel: "Eliminar",
+        confirmLabel: "Delete",
         message:
           used > 0
-            ? `Se eliminará «${folder.name}». Sus ${used} nota${used === 1 ? "" : "s"} pasarán a «${fallback}».`
-            : `Se eliminará la etiqueta «${folder.name}». Esta acción no se puede deshacer.`,
+            ? `"${folder.name}" will be deleted. Its ${used} note${used === 1 ? "" : "s"} will move to "${fallback}".`
+            : `The tag "${folder.name}" will be deleted. This cannot be undone.`,
         onConfirm: async () => {
           const { fallback: moved } = await api.deleteFolder(folder.name);
           setFolders((prev) => prev.filter((f) => f.name !== folder.name));
@@ -325,15 +432,15 @@ export default function App() {
   const handleExport = React.useCallback(async () => {
     try {
       const path = await save({
-        defaultPath: "linux-notes-backup.json",
+        defaultPath: "folioo-backup.json",
         filters: [{ name: "JSON", extensions: ["json"] }],
       });
       if (!path) return;
       await api.exportToPath(path);
-      setImportMsg("Copia exportada correctamente.");
+      setImportMsg("Backup exported successfully.");
     } catch (e) {
       console.error("Export failed:", e);
-      setImportMsg("No se pudo exportar la copia.");
+      setImportMsg("Could not export the backup.");
     }
   }, []);
 
@@ -350,10 +457,10 @@ export default function App() {
       setNotes(n);
       setTrash(t);
       setFolders(f);
-      setImportMsg(`Importadas ${count} nota${count === 1 ? "" : "s"}.`);
+      setImportMsg(`Imported ${count} note${count === 1 ? "" : "s"}.`);
     } catch (e) {
       console.error("Import failed:", e);
-      setImportMsg("No se pudo importar el archivo.");
+      setImportMsg("Could not import the file.");
     }
   }, []);
 
@@ -405,6 +512,8 @@ export default function App() {
         onNewTag={openNewTag}
         onRestore={handleRestore}
         onPurge={askPurgeNote}
+        revision={editorRevision}
+        onKeepLocalCopy={handleKeepLocalCopy}
       />
 
       <NewTagModal
@@ -414,6 +523,24 @@ export default function App() {
         onCreate={handleCreateTag}
       />
 
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => { setSettingsOpen(false); setImportMsg(""); setSyncMsg(""); }}
+        settings={settings}
+        onChange={setSetting}
+        onExport={handleExport}
+        onImport={handleImport}
+        importMsg={importMsg}
+        sync={{
+          status: syncStatus,
+          message: syncMsg,
+          onChooseFolder: handleChooseSyncFolder,
+          onSyncNow: handleSyncNow,
+          onStop: askStopSync,
+        }}
+      />
+
+      {/* Last, so it stacks above Settings when opened from there. */}
       <ConfirmModal
         open={!!confirm}
         title={confirm?.title}
@@ -426,16 +553,6 @@ export default function App() {
           c?.onConfirm?.();
         }}
         onClose={() => setConfirm(null)}
-      />
-
-      <SettingsModal
-        open={settingsOpen}
-        onClose={() => { setSettingsOpen(false); setImportMsg(""); }}
-        settings={settings}
-        onChange={setSetting}
-        onExport={handleExport}
-        onImport={handleImport}
-        importMsg={importMsg}
       />
     </div>
   );

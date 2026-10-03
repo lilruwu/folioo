@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>org.linuxnotes.app</id>
+  <id>org.folioo.app</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
-  <name>Linux Notes</name>
+  <name>Folioo</name>
   <summary>Open-source notes for Linux</summary>
   <description>
     <p>
@@ -12,7 +12,7 @@
       to-do lists, tables, a 30-day trash and theming.
     </p>
   </description>
-  <launchable type="desktop-id">org.linuxnotes.app.desktop</launchable>
+  <launchable type="desktop-id">org.folioo.app.desktop</launchable>
   <url type="homepage">https://github.com/lilruwu/linux-notes</url>
   <content_rating type="oars-1.1" />
   <releases>

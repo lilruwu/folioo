@@ -75,3 +75,24 @@ export function exportToPath(path) {
 export function importFromPath(path) {
   return invoke("import_from_path", { path }); // resolves to number of notes imported
 }
+
+// ── Folder sync ──
+// Status: { folder, running, lastSyncMs, available, error }.
+export function syncStatus() {
+  return invoke("sync_status");
+}
+
+// Creates (or adopts) the library in `path`; rejects with a message if the
+// folder can't be used. Resolves to the new status.
+export function syncSetFolder(path) {
+  return invoke("sync_set_folder", { path });
+}
+
+// Forgets the folder. Local notes and the folder's contents are kept.
+export function syncStop() {
+  return invoke("sync_stop");
+}
+
+export function syncNow() {
+  return invoke("sync_now");
+}

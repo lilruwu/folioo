@@ -1,0 +1,49 @@
+# Flatpak manifest for Folioo.
+# It installs a pre-built .deb into the GNOME runtime (which already provides
+# webkit2gtk-4.1). Before building, place the built .deb next to this file as
+# `folioo.deb` (the CI does this automatically). See README → Flatpak.
+id: org.folioo.app
+
+runtime: org.gnome.Platform
+runtime-version: "46"
+sdk: org.gnome.Sdk
+
+command: folioo
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --share=ipc
+  - --share=network # web fonts (Lora) load from the CDN, like the other builds
+  # Read the host's GTK config + theme files so the window decorations
+  # (titlebar) follow the user's system theme. The gtk-3.0/4.0 config tells the
+  # app which theme + light/dark preference to use; the theme directories let it
+  # actually load custom themes (e.g. WhiteSur-Dark) that live in the user's
+  # home and aren't shipped inside the GNOME runtime. Without these the sandbox
+  # only sees the runtime's default Adwaita and the titlebar is stuck light.
+  - --filesystem=xdg-config/gtk-3.0:ro
+  - --filesystem=xdg-config/gtk-4.0:ro
+  - --filesystem=~/.themes:ro
+  - --filesystem=xdg-data/themes:ro
+  - --filesystem=xdg-data/icons:ro
+
+modules:
+  - name: folioo
+    buildsystem: simple
+    sources:
+      - type: file
+        path: org.folioo.app.metainfo.xml
+      - type: file
+        path: folioo.deb
+    build-commands:
+      - mkdir -p deb-extract
+      - ar -x folioo.deb --output deb-extract
+      - tar -C deb-extract -xf deb-extract/data.tar.gz
+      - install -Dm755 deb-extract/usr/bin/folioo /app/bin/folioo
+      - sed -i 's/^Icon=.*/Icon=org.folioo.app/' "deb-extract/usr/share/applications/Folioo.desktop"
+      - install -Dm644 "deb-extract/usr/share/applications/Folioo.desktop" /app/share/applications/org.folioo.app.desktop
+      - install -Dm644 deb-extract/usr/share/icons/hicolor/32x32/apps/folioo.png /app/share/icons/hicolor/32x32/apps/org.folioo.app.png
+      - install -Dm644 deb-extract/usr/share/icons/hicolor/128x128/apps/folioo.png /app/share/icons/hicolor/128x128/apps/org.folioo.app.png
+      - install -Dm644 deb-extract/usr/share/icons/hicolor/256x256@2/apps/folioo.png /app/share/icons/hicolor/256x256@2/apps/org.folioo.app.png
+      - install -Dm644 deb-extract/usr/share/icons/hicolor/512x512/apps/folioo.png /app/share/icons/hicolor/512x512/apps/org.folioo.app.png
+      - install -Dm644 org.folioo.app.metainfo.xml /app/share/metainfo/org.folioo.app.metainfo.xml
